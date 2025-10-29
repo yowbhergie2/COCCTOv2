@@ -1,0 +1,166 @@
+// =============================================================================
+// UIFunctions.gs - User Interface and Menu Functions
+// =============================================================================
+//
+// UPDATED: 2025-10-28
+// PURPOSE: Removed "Import Historical Data" menu item (functionality moved to Employee Manager)
+//
+// =============================================================================
+
+/**
+ * Creates the main menu when the spreadsheet opens
+ * 
+ * ✅ UPDATED: Removed 'Import', 'showHistoricalimport' menu item
+ * ✅ NOTE: Historical import functionality now integrated in Employee Manager (Card 2)
+ */
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('COC/CTO System')
+    .addItem('Dashboard', 'showDashboard')
+    .addSeparator()
+    .addItem('Record COC Earned', 'showMonthlyCOCEntry')
+    .addItem('Record CTO Application', 'showCTORecordForm')
+    .addItem('CTO Applications Manager', 'showCTOApplicationsManager')
+    .addSeparator()
+    .addItem('Employee Ledger', 'showEmployeeLedger')
+    .addItem('Employee Manager', 'showEmployeeManager')  // ← Historical import now integrated here
+    .addItem('Holiday Manager', 'showHolidayManager')
+    // ❌ REMOVED: .addItem('Import', 'showHistoricalimport')
+    .addSeparator()
+    .addItem('Settings', 'showSettings')
+    .addItem('Reports', 'showReports')
+    .addToUi();
+}
+
+/**
+ * Opens the CTO Applications Manager
+ */
+function showCTOApplicationsManager() {
+  const html = HtmlService.createHtmlOutputFromFile('CTOApplicationsManager')
+    .setWidth(1400)
+    .setHeight(800);
+  SpreadsheetApp.getUi().showModalDialog(html, 'CTO Applications Manager');
+}
+
+/**
+ * Opens the Settings dialog
+ */
+function showSettings() {
+  const html = HtmlService.createHtmlOutputFromFile('Settings')
+    .setWidth(800)
+    .setHeight(600);
+  SpreadsheetApp.getUi().showModalDialog(html, 'System Settings');
+}
+
+/**
+ * Opens the Dashboard
+ */
+function showDashboard() {
+  const html = HtmlService.createHtmlOutputFromFile('Dashboard')
+    .setWidth(1200)
+    .setHeight(800);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Dashboard');
+}
+
+/**
+ * Opens the Monthly COC Entry form
+ */
+function showMonthlyCOCEntry() {
+  const html = HtmlService.createHtmlOutputFromFile('MonthlyCOCEntry')
+    .setWidth(1000)
+    .setHeight(700);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Record COC Earned');
+}
+
+/**
+ * Opens the CTO Record Form
+ */
+function showCTORecordForm() {
+  const html = HtmlService.createHtmlOutputFromFile('CTORecordForm')
+    .setWidth(600)
+    .setHeight(500);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Record CTO Application');
+}
+
+/**
+ * Opens the Employee Ledger
+ */
+function showEmployeeLedger() {
+  const html = HtmlService.createHtmlOutputFromFile('EmployeeLedger')
+    .setWidth(1200)
+    .setHeight(800);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Employee Ledger');
+}
+
+/**
+ * Opens the Employee Manager
+ * 
+ * ✅ NOTE: This now includes historical COC import functionality in Card 2
+ */
+function showEmployeeManager() {
+  const html = HtmlService.createHtmlOutputFromFile('EmployeeManager')
+    .setWidth(1400)
+    .setHeight(900);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Employee Manager');
+}
+
+// ❌ REMOVED: showHistoricalimport() function
+// Historical import functionality is now integrated in EmployeeManager.html (Card 2)
+
+/**
+ * Opens the Reports dialog
+ */
+function showReports() {
+  const html = HtmlService.createHtmlOutputFromFile('Reports')
+    .setWidth(1200)
+    .setHeight(800);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Reports');
+}
+
+/**
+ * Opens the Holiday Manager
+ */
+function showHolidayManager() {
+  const html = HtmlService.createHtmlOutputFromFile('HolidayManager')
+    .setWidth(1000)
+    .setHeight(700);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Holiday Manager');
+}
+
+/**
+ * Navigation helper function
+ * @param {string} pageName The name of the page to navigate to
+ */
+function navigateToPage(pageName) {
+  switch (pageName) {
+    case 'dashboard':
+      showDashboard();
+      break;
+    case 'monthlyCOCEntry':
+      showMonthlyCOCEntry();
+      break;
+    case 'ctoRecordForm':
+      showCTORecordForm();
+      break;
+    case 'employeeLedger':
+      showEmployeeLedger();
+      break;
+    case 'employeeManager':
+      showEmployeeManager();
+      break;
+    case 'holidayManager':
+      showHolidayManager();
+      break;
+    case 'settings':
+      showSettings();
+      break;
+    case 'reports':
+      showReports();
+      break;
+    case 'ctoManager':
+      showCTOApplicationsManager();
+      break;
+    default:
+      SpreadsheetApp.getUi().alert('Unknown page: ' + pageName);
+  }
+}
