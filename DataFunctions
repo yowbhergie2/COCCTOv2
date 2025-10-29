@@ -1,0 +1,1007 @@
+// =============================================================================
+// DataFunctions.gs - Data Operations and CRUD Functions
+// =============================================================================
+// 
+// UPDATED: 2025-10-28
+// PURPOSE: Fixed employee functions to work with new 8-column structure
+//          Removed email, initialBalance, initialBalanceDate fields
+//          Added formatEmployeeName() helper function
+//
+// =============================================================================
+
+// =============================================================================
+// Database Access
+// =============================================================================
+
+/**
+ * Gets the database spreadsheet
+ * @return {Spreadsheet} The database spreadsheet
+ */
+function getDatabase() {
+  try {
+    return SpreadsheetApp.openById(DATABASE_ID);
+  } catch (err) {
+    Logger.log('WARNING: Could not open database by ID (' + DATABASE_ID + '). Error: ' + err.message + '. Falling back to active spreadsheet.');
+  }
+  return SpreadsheetApp.getActive();
+}
+
+/**
+ * Gets all data from a sheet excluding the header row
+ * @param {string} sheetName The name of the sheet
+ * @return {Array<Array>} Array of row arrays (excluding header)
+ */
+function getSheetDataNoHeader(sheetName) {
+  const db = getDatabase();
+  const sheet = db.getSheetByName(sheetName);
+
+  if (!sheet) {
+    throw new Error('Sheet "' + sheetName + '" not found in database.');
+  }
+
+  const data = sheet.getDataRange().getValues();
+
+  if (data.length <= 1) {
+    return [];
+  }
+
+  return data.slice(1);
+}
+
+/**
+ * Creates or ensures the COC_Balance_Detail sheet exists
+ */
+function ensureCOCBalanceDetailSheet() {
+  const db = getDatabase();
+  let detailSheet = db.getSheetByName('COC_Balance_Detail');
+
+  if (!detailSheet) {
+    detailSheet = db.insertSheet('COC_Balance_Detail');
+
+    const headers = [
+      'Entry ID', 'Employee ID', 'Employee Name', 'Certificate ID',
+      'Record ID', 'Month-Year', 'Date Earned', 'Day Type',
+      'Hours Earned', 'Hours Used', 'Hours Remaining',
+      'Certificate Issue Date', 'Expiration Date', 'Status',
+      'Date Created', 'Created By', 'Last Updated', 'Notes'
+    ];
+
+    detailSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    detailSheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    detailSheet.setFrozenRows(1);
+  }
+
+  return detailSheet;
+}
+
+/**
+ * Ensure Ledger sheet exists
+ * @return {Sheet} The ledger sheet
+ */
+function ensureLedgerSheet() {
+  const db = getDatabase();
+  let sheet = db.getSheetByName('COC_Ledger');
+  
+  if (!sheet) {
+    sheet = db.insertSheet('COC_Ledger');
+    const headers = [
+      'Ledger ID', 'Employee ID', 'Employee Name', 'Transaction Date', 
+      'Transaction Type', 'Reference ID', 'Balance Before', 'COC Earned',
+      'CTO Used', 'COC Expired', 'Balance Adjustment', 'Balance After',
+      'Month-Year Earned', 'Expiration Date', 'Processed By',
+      'Processed Date', 'Remarks', 'Duration', 'Certificate URL'
+    ];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    Logger.log('COC_Ledger sheet created');
+  }
+  
+  return sheet;
+}
+
+// =============================================================================
+// ✅ NEW: Employee Name Formatting Helper
+// =============================================================================
+
+/**
+ * Format employee full name following organizational standards
+ * 
+ * Examples:
+ *   formatEmployeeName('Juan', 'A', 'Dela Cruz', 'Jr.') → "Juan A. Dela Cruz, Jr."
+ *   formatEmployeeName('Ana', 'B', 'Santos', '') → "Ana B. Santos"
+ *   formatEmployeeName('Bhergie', '', 'Estabillo', '') → "Bhergie Estabillo"
+ *   formatEmployeeName('Angelo', 'G', 'Gacad', 'III') → "Angelo G. Gacad III"
+ * 
+ * @param {string} firstName First name
+ * @param {string} middleInitial Middle initial
+ * @param {string} lastName Last name
+ * @param {string} suffix Suffix (Jr., Sr., III, etc.)
+ * @return {string} Formatted full name
+ */
+function formatEmployeeName(firstName, middleInitial, lastName, suffix) {
+  let name = firstName || '';
+  
+  // Add middle initial with period if present
+  if (middleInitial && middleInitial.trim()) {
+    const mi = middleInitial.trim();
+    name += ' ' + mi;
+    // Add period if not already there
+    if (!mi.includes('.')) {
+      name += '.';
+    }
+  }
+  
+  // Add last name
+  name += ' ' + (lastName || '');
+  
+  // Add suffix with appropriate formatting
+  if (suffix && suffix.trim()) {
+    const suffixTrimmed = suffix.trim();
+    // Use comma for Jr./Sr., space for Roman numerals
+    if (suffixTrimmed === 'Jr.' || suffixTrimmed === 'Sr.' || suffixTrimmed === 'Jr' || suffixTrimmed === 'Sr') {
+      name += ', ' + suffixTrimmed;
+    } else {
+      // Roman numerals (II, III, IV, etc.) get a space
+      name += ' ' + suffixTrimmed;
+    }
+  }
+  
+  return name.trim();
+}
+
+// =============================================================================
+// ✅ UPDATED: Employee Functions (Fixed for 8-column structure)
+// =============================================================================
+
+/**
+ * Retrieves an employee record by ID
+ * 
+ * ✅ UPDATED: Now reads only 8 columns (A-H)
+ * ✅ UPDATED: Uses correct EMP_COLS indices
+ * ✅ UPDATED: Uses formatEmployeeName() helper
+ * ❌ REMOVED: email, initialBalance, initialBalanceDate fields
+ * 
+ * @param {string} employeeId The employee ID (e.g. EMP001)
+ * @return {Object|null} The employee record or null if not found
+ */
+function getEmployeeById(employeeId) {
+  Logger.log('getEmployeeById called for: ' + employeeId);
+  const db = getDatabase();
+  const sheet = db.getSheetByName('Employees');
+  
+  if (!sheet) {
+    Logger.log('ERROR: Employees sheet not found');
+    return null;
+  }
+  
+  const TIME_ZONE = getScriptTimeZone();
+  
+  // ✅ FIXED: Read only 8 columns (A-H) instead of 11
+  const data = sheet.getRange(1, 1, sheet.getLastRow(), 8).getValues();
+  
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][EMP_COLS.EMPLOYEE_ID] === employeeId) {
+      const row = data[i];
+      
+      // ✅ FIXED: Use formatEmployeeName() helper with correct column order
+      const fullName = formatEmployeeName(
+        row[EMP_COLS.FIRST_NAME],
+        row[EMP_COLS.MIDDLE_INITIAL],
+        row[EMP_COLS.LAST_NAME],
+        row[EMP_COLS.SUFFIX]
+      );
+      
+      return {
+        row: i + 1,
+        id: row[EMP_COLS.EMPLOYEE_ID],
+        lastName: row[EMP_COLS.LAST_NAME],
+        firstName: row[EMP_COLS.FIRST_NAME],
+        middleInitial: row[EMP_COLS.MIDDLE_INITIAL] || '',
+        suffix: row[EMP_COLS.SUFFIX] || '',
+        position: row[EMP_COLS.POSITION],
+        office: row[EMP_COLS.OFFICE],
+        status: row[EMP_COLS.STATUS],
+        fullName: fullName
+        // ❌ REMOVED: email, initialBalance, initialBalanceDate
+      };
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Gets full employee details from the Employees sheet
+ * 
+ * ✅ UPDATED: Uses formatEmployeeName() helper
+ * ✅ UPDATED: Uses correct EMP_COLS indices
+ * 
+ * @param {string} employeeId The Employee ID
+ * @returns {object} An object with fullName, position, and office
+ */
+function getEmployeeDetails(employeeId) {
+  const data = getSheetDataNoHeader('Employees');
+  const empRow = data.find(r => r[EMP_COLS.EMPLOYEE_ID] === employeeId);
+  
+  if (!empRow) return null;
+  
+  // ✅ FIXED: Use formatEmployeeName() with correct order
+  const fullName = formatEmployeeName(
+    empRow[EMP_COLS.FIRST_NAME],
+    empRow[EMP_COLS.MIDDLE_INITIAL],
+    empRow[EMP_COLS.LAST_NAME],
+    empRow[EMP_COLS.SUFFIX]
+  );
+  
+  return {
+    fullName: fullName,
+    position: empRow[EMP_COLS.POSITION],
+    office: empRow[EMP_COLS.OFFICE]
+  };
+}
+
+/**
+ * Returns a list of employees
+ * 
+ * ✅ UPDATED: Now reads only 8 columns (A-H)
+ * ✅ UPDATED: Uses formatEmployeeName() helper
+ * ✅ UPDATED: Uses correct EMP_COLS indices
+ * ❌ REMOVED: email, initialBalance, initialBalanceDate fields
+ * 
+ * @param {boolean} includeInactive When true, inactive employees are included
+ * @return {Array<Object>} An array of employee objects
+ */
+function listEmployees(includeInactive) {
+  Logger.log('listEmployees called. includeInactive = ' + includeInactive);
+  
+  const db = getDatabase();
+  Logger.log('Database: ' + db.getName());
+  
+  const sheet = db.getSheetByName('Employees');
+
+  if (!sheet) {
+    Logger.log('ERROR: "Employees" sheet NOT FOUND in ' + db.getName());
+    return [];
+  }
+  
+  Logger.log('"Employees" sheet found.');
+
+  const lastRow = sheet.getLastRow();
+  Logger.log('Last row in "Employees" sheet: ' + lastRow);
+  
+  if (lastRow < 2) {
+    Logger.log('No data rows found (lastRow < 2). Returning empty list.');
+    return [];
+  }
+
+  // ✅ FIXED: Read only 8 columns (A-H) instead of 11
+  const rows = sheet.getRange(1, 1, lastRow, 8).getValues();
+  const employees = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    
+    const id = row[EMP_COLS.EMPLOYEE_ID];
+    const lastName = row[EMP_COLS.LAST_NAME];
+    const firstName = row[EMP_COLS.FIRST_NAME];
+    const middleInitial = row[EMP_COLS.MIDDLE_INITIAL];
+    const suffix = row[EMP_COLS.SUFFIX];
+    const position = row[EMP_COLS.POSITION];
+    const office = row[EMP_COLS.OFFICE];
+    const status = row[EMP_COLS.STATUS];
+
+    if (!includeInactive && status !== 'Active') continue;
+    
+    // ✅ FIXED: Use formatEmployeeName() helper
+    const fullName = formatEmployeeName(firstName, middleInitial, lastName, suffix);
+
+    employees.push({
+      id: id,
+      fullName: fullName,
+      position: position,
+      office: office,
+      status: status,
+      lastName: lastName,
+      firstName: firstName,
+      middleInitial: middleInitial,
+      suffix: suffix
+      // ❌ REMOVED: email, initialBalance, initialBalanceDate
+    });
+  }
+  
+  return employees;
+}
+
+/**
+ * Adds a new employee to the database
+ * 
+ * ✅ UPDATED: Now writes only 8 columns (A-H)
+ * ✅ UPDATED: Uses correct column order (Last Name, First Name, Middle Initial)
+ * ❌ REMOVED: email field (column H deleted)
+ * ❌ REMOVED: initialBalance and initialBalanceDate (columns J-K deleted)
+ * 
+ * NOTE: Initial balance logic moved to COC_Ledger and COC_Balance_Detail
+ * 
+ * @param {Object} data Employee data object
+ * @return {string} The generated employee ID
+ */
+function addEmployee(data) {
+  const db = getDatabase();
+  const sheet = db.getSheetByName('Employees');
+  
+  if (!sheet) {
+    throw new Error('Employees sheet not found in database');
+  }
+
+  const id = generateEmployeeId();
+  
+  // ✅ FIXED: Append only 8 columns in correct order
+  sheet.appendRow([
+    id,                           // A: Employee ID
+    data.lastName,                // B: Last Name ✅
+    data.firstName,               // C: First Name ✅
+    data.middleInitial || '',     // D: Middle Initial ✅
+    data.suffix || '',            // E: Suffix
+    data.position,                // F: Position
+    data.office,                  // G: Office/Division
+    data.status || 'Active'       // H: Status
+    // ❌ REMOVED: email (was column H)
+    // ❌ REMOVED: initialBalance (was column J)
+    // ❌ REMOVED: initialBalanceDate (was column K)
+  ]);
+
+  // Initial balance logic moved to separate function (handled in addEmployeeWithFIFO)
+  
+  return id;
+}
+
+/**
+ * Adds a new employee with FIFO initial balance entries
+ * 
+ * ✅ UPDATED: Creates employee with 8-column structure
+ * ✅ UPDATED: Initial balances go to COC_Ledger and COC_Balance_Detail only
+ * 
+ * @param {Object} data Employee data with initialBalanceEntries array
+ * @return {string} The generated employee ID
+ */
+function addEmployeeWithFIFO(data) {
+  const db = getDatabase();
+  const sheet = db.getSheetByName('Employees');
+  
+  if (!sheet) {
+    throw new Error('Employees sheet not found in database');
+  }
+
+  const id = generateEmployeeId();
+  
+  // Build full name using helper
+  const fullName = formatEmployeeName(
+    data.firstName,
+    data.middleInitial,
+    data.lastName,
+    data.suffix
+  );
+
+  // ✅ FIXED: Append only 8 columns
+  sheet.appendRow([
+    id,
+    data.lastName,
+    data.firstName,
+    data.middleInitial || '',
+    data.suffix || '',
+    data.position,
+    data.office,
+    data.status || 'Active'
+  ]);
+
+  // Handle initial balance entries if provided
+  const entries = data.initialBalanceEntries || [];
+  
+  if (entries.length > 0) {
+    const ledgerSheet = ensureLedgerSheet();
+    const detailSheet = ensureCOCBalanceDetailSheet();
+    const TIME_ZONE = getScriptTimeZone();
+    const settings = getSettings();
+    const validityMonths = parseInt(settings['COC_VALIDITY_MONTHS']) || 12;
+
+    let runningBalance = 0;
+    const ledgerRows = [];
+    const detailRows = [];
+
+    // Sort entries by date (oldest first)
+    entries.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    entries.forEach(entry => {
+      const amount = parseFloat(entry.amount) || 0;
+      if (amount <= 0) return;
+
+      const certificateDate = new Date(entry.date);
+      const expiration = new Date(certificateDate);
+      expiration.setFullYear(expiration.getFullYear() + validityMonths);
+      expiration.setDate(expiration.getDate() - 1);
+
+      const monthYear = Utilities.formatDate(certificateDate, TIME_ZONE, 'yyyy-MM');
+      const recordId = generateCOCDetailEntryId();
+      const remarks = entry.remarks || 'Initial COC balance';
+
+      runningBalance += amount;
+
+      // Ledger entry
+      ledgerRows.push([
+        generateLedgerEntryId(),
+        id,
+        fullName.trim(),
+        new Date(),
+        TR_TYPE_INITIAL,
+        recordId,
+        runningBalance - amount,
+        amount,
+        0,
+        0,
+        0,
+        runningBalance,
+        monthYear,
+        expiration,
+        Session.getActiveUser().getEmail(),
+        new Date(),
+        remarks,
+        '',
+        ''
+      ]);
+
+      // Detail entry (for FIFO tracking)
+      detailRows.push([
+        recordId,
+        id,
+        fullName.trim(),
+        'CERT-' + Utilities.formatDate(certificateDate, TIME_ZONE, 'yyyyMMddHHmmssSSS'),
+        'INIT-' + recordId,
+        monthYear,
+        certificateDate,
+        'Initial Balance',
+        amount,
+        0,
+        amount,
+        certificateDate,
+        expiration,
+        STATUS_ACTIVE,
+        new Date(),
+        Session.getActiveUser().getEmail(),
+        new Date(),
+        remarks
+      ]);
+    });
+
+    // Batch write
+    if (ledgerRows.length > 0) {
+      ledgerSheet.getRange(ledgerSheet.getLastRow() + 1, 1, ledgerRows.length, ledgerRows[0].length)
+        .setValues(ledgerRows);
+    }
+
+    if (detailRows.length > 0) {
+      detailSheet.getRange(detailSheet.getLastRow() + 1, 1, detailRows.length, detailRows[0].length)
+        .setValues(detailRows);
+    }
+  }
+
+  return id;
+}
+
+/**
+ * Updates an existing employee's details
+ * 
+ * ✅ UPDATED: Updates only 7 fields (B-H)
+ * ✅ UPDATED: Uses correct column order
+ * ❌ REMOVED: email field
+ * ❌ REMOVED: initialBalance and initialBalanceDate (these are historical)
+ * 
+ * @param {string} employeeId The ID of the employee to update
+ * @param {Object} data The fields to update
+ * @return {boolean} True on success
+ */
+function updateEmployee(employeeId, data) {
+  const db = getDatabase();
+  const sheet = db.getSheetByName('Employees');
+  
+  if (!sheet) {
+    throw new Error('Employees sheet not found');
+  }
+  
+  const employee = getEmployeeById(employeeId);
+  
+  if (!employee) {
+    throw new Error('Employee not found');
+  }
+
+  // ✅ FIXED: Build updated row values (B to H - 7 fields)
+  const updated = [
+    data.lastName !== undefined ? data.lastName : employee.lastName,
+    data.firstName !== undefined ? data.firstName : employee.firstName,
+    data.middleInitial !== undefined ? data.middleInitial : employee.middleInitial,
+    data.suffix !== undefined ? data.suffix : employee.suffix,
+    data.position !== undefined ? data.position : employee.position,
+    data.office !== undefined ? data.office : employee.office,
+    data.status !== undefined ? data.status : employee.status
+  ];
+
+  // Update columns B to H (7 columns)
+  sheet.getRange(employee.row, 2, 1, 7).setValues([updated]);
+  
+  return true;
+}
+
+// =============================================================================
+// Ledger Functions
+// =============================================================================
+
+/**
+ * Retrieves the ledger for a specific employee
+ * 
+ * @param {string} employeeId The employee ID
+ * @return {Array<Object>} Array of ledger entries
+ */
+function getLedgerForEmployee(employeeId) {
+  const db = getDatabase();
+  const ledgerSheet = db.getSheetByName('COC_Ledger');
+  
+  if (!ledgerSheet) {
+    Logger.log('COC_Ledger sheet not found');
+    return [];
+  }
+
+  const data = ledgerSheet.getDataRange().getValues();
+  const entries = [];
+  const TIME_ZONE = getScriptTimeZone();
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    
+    if (row[LEDGER_COLS.EMPLOYEE_ID] === employeeId) {
+      entries.push({
+        ledgerId: row[LEDGER_COLS.LEDGER_ID],
+        transactionDate: formatDate(row[LEDGER_COLS.TRANSACTION_DATE]),
+        transactionType: row[LEDGER_COLS.TRANSACTION_TYPE],
+        referenceId: row[LEDGER_COLS.REFERENCE_ID],
+        balanceBefore: parseFloat(row[LEDGER_COLS.BALANCE_BEFORE]) || 0,
+        cocEarned: parseFloat(row[LEDGER_COLS.COC_EARNED]) || 0,
+        ctoUsed: parseFloat(row[LEDGER_COLS.CTO_USED]) || 0,
+        cocExpired: parseFloat(row[LEDGER_COLS.COC_EXPIRED]) || 0,
+        balanceAdjustment: parseFloat(row[LEDGER_COLS.BALANCE_ADJUSTMENT]) || 0,
+        balanceAfter: parseFloat(row[LEDGER_COLS.BALANCE_AFTER]) || 0,
+        monthYearEarned: row[LEDGER_COLS.MONTH_YEAR_EARNED],
+        expirationDate: row[LEDGER_COLS.EXPIRATION_DATE] ? formatDate(row[LEDGER_COLS.EXPIRATION_DATE]) : '',
+        processedBy: row[LEDGER_COLS.PROCESSED_BY],
+        processedDate: row[LEDGER_COLS.PROCESSED_DATE] ? formatDate(row[LEDGER_COLS.PROCESSED_DATE]) : '',
+        remarks: row[LEDGER_COLS.REMARKS] || ''
+      });
+    }
+  }
+
+  // Sort by transaction date (newest first)
+  entries.sort((a, b) => new Date(b.transactionDate) - new Date(a.transactionDate));
+
+  return entries;
+}
+
+// =============================================================================
+// COC Balance Functions
+// =============================================================================
+
+/**
+ * Add COC to balance detail sheet
+ */
+function addCOCToBalanceDetail(employeeId, employeeName, recordId, dateEarned, hoursEarned) {
+  const detailSheet = ensureCOCBalanceDetailSheet();
+  const TIME_ZONE = getScriptTimeZone();
+  
+  const settings = getSettings();
+  const validityMonths = parseInt(settings['COC_VALIDITY_MONTHS']) || 12;
+  
+  const earnedDate = new Date(dateEarned);
+  const expirationDate = new Date(earnedDate);
+  expirationDate.setFullYear(expirationDate.getFullYear() + validityMonths);
+  expirationDate.setDate(expirationDate.getDate() - 1);
+  
+  const monthYear = Utilities.formatDate(earnedDate, TIME_ZONE, 'yyyy-MM');
+  const entryId = generateCOCDetailEntryId();
+  
+  detailSheet.appendRow([
+    entryId,
+    employeeId,
+    employeeName,
+    '',  // Certificate ID (empty until certificated)
+    recordId,
+    monthYear,
+    earnedDate,
+    '',  // Day Type
+    hoursEarned,
+    0,  // Hours Used
+    hoursEarned,  // Hours Remaining
+    '',  // Certificate Issue Date
+    expirationDate,
+    STATUS_PENDING,
+    new Date(),
+    Session.getActiveUser().getEmail(),
+    new Date(),
+    'Added from COC record'
+  ]);
+  
+  return entryId;
+}
+
+/**
+ * Get current COC balance for employee
+ */
+function getCurrentCOCBalance(employeeId) {
+  const db = getDatabase();
+  const ledgerSheet = db.getSheetByName('COC_Ledger');
+  
+  if (!ledgerSheet) {
+    return 0;
+  }
+
+  const data = ledgerSheet.getDataRange().getValues();
+  let balance = 0;
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][LEDGER_COLS.EMPLOYEE_ID] === employeeId) {
+      balance = parseFloat(data[i][LEDGER_COLS.BALANCE_AFTER]) || 0;
+    }
+  }
+
+  return balance;
+}
+
+/**
+ * Get current COC balance from detail sheet
+ */
+function getCurrentCOCBalanceFromDetail(employeeId) {
+  const db = getDatabase();
+  const detailSheet = db.getSheetByName('COC_Balance_Detail');
+  
+  if (!detailSheet) {
+    return 0;
+  }
+
+  const data = detailSheet.getDataRange().getValues();
+  let balance = 0;
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    if (row[DETAIL_COLS.EMPLOYEE_ID] === employeeId && 
+        row[DETAIL_COLS.STATUS] === STATUS_ACTIVE) {
+      balance += parseFloat(row[DETAIL_COLS.HOURS_REMAINING]) || 0;
+    }
+  }
+
+  return balance;
+}
+
+/**
+ * Get COC balance breakdown for employee
+ */
+function getCOCBalanceBreakdown(employeeId) {
+  const db = getDatabase();
+  const detailSheet = db.getSheetByName('COC_Balance_Detail');
+  
+  if (!detailSheet) {
+    return [];
+  }
+
+  const data = detailSheet.getDataRange().getValues();
+  const breakdown = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    
+    if (row[DETAIL_COLS.EMPLOYEE_ID] === employeeId && 
+        row[DETAIL_COLS.STATUS] === STATUS_ACTIVE &&
+        parseFloat(row[DETAIL_COLS.HOURS_REMAINING]) > 0) {
+      
+      breakdown.push({
+        entryId: row[DETAIL_COLS.ENTRY_ID],
+        monthYear: row[DETAIL_COLS.MONTH_YEAR],
+        dateEarned: formatDate(row[DETAIL_COLS.DATE_EARNED]),
+        hoursEarned: parseFloat(row[DETAIL_COLS.HOURS_EARNED]) || 0,
+        hoursUsed: parseFloat(row[DETAIL_COLS.HOURS_USED]) || 0,
+        hoursRemaining: parseFloat(row[DETAIL_COLS.HOURS_REMAINING]) || 0,
+        expirationDate: formatDate(row[DETAIL_COLS.EXPIRATION_DATE]),
+        certificateId: row[DETAIL_COLS.CERTIFICATE_ID]
+      });
+    }
+  }
+
+  // Sort by date earned (FIFO order)
+  breakdown.sort((a, b) => new Date(a.dateEarned) - new Date(b.dateEarned));
+
+  return breakdown;
+}
+
+// =============================================================================
+// Report and Dashboard Functions
+// =============================================================================
+
+/**
+ * Get report data
+ */
+function getReportData(type, startDate, endDate) {
+  const db = getDatabase();
+  const TIME_ZONE = getScriptTimeZone();
+  
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+
+  if (type === 'coc_earned') {
+    const recordsSheet = db.getSheetByName('COC_Records');
+    if (!recordsSheet) return [];
+    
+    const data = recordsSheet.getDataRange().getValues();
+    const results = [];
+    
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const dateRecorded = new Date(row[RECORD_COLS.DATE_RECORDED]);
+      
+      if (dateRecorded >= start && dateRecorded <= end) {
+        results.push({
+          employeeId: row[RECORD_COLS.EMPLOYEE_ID],
+          employeeName: row[RECORD_COLS.EMPLOYEE_NAME],
+          monthYear: row[RECORD_COLS.MONTH_YEAR],
+          dateRendered: formatDate(row[RECORD_COLS.DATE_RENDERED]),
+          dayType: row[RECORD_COLS.DAY_TYPE],
+          hoursWorked: parseFloat(row[RECORD_COLS.HOURS_WORKED]) || 0,
+          multiplier: parseFloat(row[RECORD_COLS.MULTIPLIER]) || 0,
+          cocEarned: parseFloat(row[RECORD_COLS.COC_EARNED]) || 0,
+          status: row[RECORD_COLS.STATUS]
+        });
+      }
+    }
+    
+    return results;
+  }
+  
+  if (type === 'cto_used') {
+    const ctoSheet = db.getSheetByName('CTO_Applications');
+    if (!ctoSheet) return [];
+    
+    const data = ctoSheet.getDataRange().getValues();
+    const results = [];
+    
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const startDateCTO = new Date(row[3]);
+      
+      if (startDateCTO >= start && startDateCTO <= end && row[8] === 'Approved') {
+        results.push({
+          employeeId: row[1],
+          employeeName: row[2],
+          hours: parseFloat(row[4]) || 0,
+          startDate: formatDate(row[3]),
+          endDate: formatDate(row[5]),
+          duration: row[6],
+          remarks: row[7],
+          approvedBy: row[10],
+          approvedDate: formatDate(row[11])
+        });
+      }
+    }
+    
+    return results;
+  }
+  
+  if (type === 'balances') {
+    const employees = listEmployees(true);
+    const results = [];
+    
+    employees.forEach(emp => {
+      const balance = getCurrentCOCBalance(emp.id);
+      results.push({
+        employeeId: emp.id,
+        employeeName: emp.fullName,
+        position: emp.position,
+        office: emp.office,
+        status: emp.status,
+        balance: balance
+      });
+    });
+    
+    return results;
+  }
+  
+  return [];
+}
+
+/**
+ * Get dashboard statistics
+ */
+function getDashboardStats() {
+  const db = getDatabase();
+  const stats = {
+    totalEmployees: 0,
+    activeEmployees: 0,
+    totalCOCEarned: 0,
+    totalCTOUsed: 0,
+    pendingCOCRecords: 0,
+    pendingCTOApplications: 0,
+    activeCOCBalance: 0
+  };
+
+  // Employee stats
+  const employees = listEmployees(true);
+  stats.totalEmployees = employees.length;
+  stats.activeEmployees = employees.filter(e => e.status === 'Active').length;
+
+  // COC Records stats
+  const recordsSheet = db.getSheetByName('COC_Records');
+  if (recordsSheet) {
+    const recordsData = recordsSheet.getDataRange().getValues();
+    for (let i = 1; i < recordsData.length; i++) {
+      const row = recordsData[i];
+      if (row[RECORD_COLS.STATUS] === STATUS_PENDING) {
+        stats.pendingCOCRecords++;
+      }
+      stats.totalCOCEarned += parseFloat(row[RECORD_COLS.COC_EARNED]) || 0;
+    }
+  }
+
+  // CTO Applications stats
+  const ctoSheet = db.getSheetByName('CTO_Applications');
+  if (ctoSheet) {
+    const ctoData = ctoSheet.getDataRange().getValues();
+    for (let i = 1; i < ctoData.length; i++) {
+      const row = ctoData[i];
+      if (row[8] === 'Pending') {
+        stats.pendingCTOApplications++;
+      }
+      if (row[8] === 'Approved') {
+        stats.totalCTOUsed += parseFloat(row[4]) || 0;
+      }
+    }
+  }
+
+  // Active COC Balance
+  employees.forEach(emp => {
+    stats.activeCOCBalance += getCurrentCOCBalance(emp.id);
+  });
+
+  return stats;
+}
+
+/**
+ * Get recent activities
+ */
+function getRecentActivities(limit) {
+  limit = limit || 10;
+  const db = getDatabase();
+  const ledgerSheet = db.getSheetByName('COC_Ledger');
+  
+  if (!ledgerSheet) {
+    return [];
+  }
+
+  const data = ledgerSheet.getDataRange().getValues();
+  const activities = [];
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    activities.push({
+      date: row[LEDGER_COLS.TRANSACTION_DATE],
+      employeeName: row[LEDGER_COLS.EMPLOYEE_NAME],
+      type: row[LEDGER_COLS.TRANSACTION_TYPE],
+      amount: parseFloat(row[LEDGER_COLS.COC_EARNED]) || parseFloat(row[LEDGER_COLS.CTO_USED]) || 0,
+      remarks: row[LEDGER_COLS.REMARKS]
+    });
+  }
+
+  // Sort by date (newest first)
+  activities.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  // Return only the specified limit
+  return activities.slice(0, limit);
+}
+
+// =============================================================================
+// Holiday Functions
+// =============================================================================
+
+/**
+ * List all holidays
+ */
+function listHolidays() {
+  const db = getDatabase();
+  const sheet = db.getSheetByName('Holidays');
+  
+  if (!sheet || sheet.getLastRow() < 2) {
+    return [];
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const holidays = [];
+  const TIME_ZONE = getScriptTimeZone();
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const date = row[0];
+    
+    if (!date) continue;
+
+    holidays.push({
+      rowNumber: i + 1,
+      date: date,
+      dateISO: Utilities.formatDate(new Date(date), TIME_ZONE, 'yyyy-MM-dd'),
+      type: row[1] || '',
+      description: row[2] || '',
+      halfdayTime: row[3] || '',
+      suspensionTime: row[4] || '',
+      remarks: row[5] || ''
+    });
+  }
+
+  holidays.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  return holidays;
+}
+
+/**
+ * Add a holiday
+ */
+function addHoliday(date, type, description, halfdayTime, suspensionTime, remarks) {
+  const db = getDatabase();
+  const sheet = db.getSheetByName('Holidays');
+  
+  if (!sheet) {
+    throw new Error('Holidays sheet not found');
+  }
+
+  sheet.appendRow([
+    new Date(date),
+    type || '',
+    description || '',
+    halfdayTime || '',
+    suspensionTime || '',
+    remarks || ''
+  ]);
+
+  return true;
+}
+
+/**
+ * Update a holiday
+ */
+function updateHoliday(rowNumber, date, type, description, halfdayTime, suspensionTime, remarks) {
+  const db = getDatabase();
+  const sheet = db.getSheetByName('Holidays');
+  
+  if (!sheet) {
+    throw new Error('Holidays sheet not found');
+  }
+
+  sheet.getRange(rowNumber, 1, 1, 6).setValues([[
+    new Date(date),
+    type || '',
+    description || '',
+    halfdayTime || '',
+    suspensionTime || '',
+    remarks || ''
+  ]]);
+
+  return true;
+}
+
+/**
+ * Delete a holiday
+ */
+function deleteHoliday(rowNumber) {
+  const db = getDatabase();
+  const sheet = db.getSheetByName('Holidays');
+  
+  if (!sheet) {
+    throw new Error('Holidays sheet not found');
+  }
+
+  sheet.deleteRow(rowNumber);
+
+  return true;
+}
