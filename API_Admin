@@ -1,0 +1,1528 @@
+// -----------------------------------------------------------------------------
+// API_Admin.gs
+//
+// Contains all API functions related to administration, settings,
+// holidays, reports, and data management (imports, integrity).
+// -----------------------------------------------------------------------------
+
+
+// --- Holiday Management ---
+
+/**
+ * API: Add a new holiday
+ * @param {Date} date The date of the holiday
+ * @param {string} type The type of holiday
+ * @param {string} description Optional description
+ * @param {string} halfdayTime Optional time for half-day holidays
+ * @param {string} suspensionTime Optional time for work suspension
+ * @param {string} remarks Optional additional remarks
+ * @return {Object} Success result
+ */
+function apiAddHoliday(date, type, description, halfdayTime, suspensionTime, remarks) {
+  try {
+    const db = getDatabase();
+    let sheet = db.getSheetByName('Holidays');
+
+    if (!sheet) {
+      sheet = db.insertSheet('Holidays');
+      sheet.getRange(1, 1, 1, 6).setValues([
+        [
+          'Date', 'Type', 'Description', 'Half-day Start Time', 'Suspension Time', 'Remarks'
+        ]
+      ]);
+      sheet.setFrozenRows(1);
+    }
+
+    // Validate inputs
+    if (!date || !(date instanceof Date)) {
+      throw new Error('Invalid date provided');
+    }
+
+    if (!type) {
+      throw new Error('Holiday type is required');
+    }
+
+    // Check for duplicate date
+    const existingData = sheet.getDataRange().getValues();
+    const TIME_ZONE = getScriptTimeZone();
+    const dateStr = Utilities.formatDate(new Date(date), TIME_ZONE, 'yyyy-MM-dd');
+
+    for (let i = 1; i < existingData.length; i++) {
+      const existingDate = existingData[i][0];
+      if (existingDate && Utilities.formatDate(new Date(existingDate), TIME_ZONE, 'yyyy-MM-dd') === dateStr) {
+        throw new Error('A holiday already exists for this date. Please edit the existing entry instead.');
+      }
+    }
+
+    // Add new row
+    const newRow = [
+      new Date(date),
+      type,
+      description || '',
+      halfdayTime || '',
+      suspensionTime || '',
+      remarks || ''
+    ];
+
+    sheet.appendRow(newRow);
+
+    Logger.log('Holiday added successfully: ' + dateStr + ' - ' + type);
+    return {
+      success: true,
+      message: 'Holiday added successfully'
+    };
+
+  } catch (error) {
+    Logger.log('ERROR in apiAddHoliday: ' + error.message + '\nStack: ' + error.stack);
+    throw new Error('Failed to add holiday: ' + error.message);
+  }
+}
+
+/**
+ * API: List all holidays
+ * @return {Array<Object>} Array of holiday objects
+ */
+function apiListHolidays() {
+  try {
+    const db = getDatabase();
+    const sheet = db.getSheetByName('Holidays');
+
+    if (!sheet || sheet.getLastRow() < 2) {
+      return [];
+    }
+
+    const data = sheet.getDataRange().getValues();
+    const results = [];
+    const TIME_ZONE = getScriptTimeZone();
+
+    // Skip header row
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const date = row[0]; // Column A: Date
+
+      if (!date) continue; // Skip empty rows
+
+      results.push({
+        rowNumber: i + 1,
+        date: date,
+        dateISO: Utilities.formatDate(new Date(date), TIME_ZONE, 'yyyy-MM-dd'),
+        type: row[1] || '', // Column B: Type
+        description: row[2] || '', // Column C: Description
+        halfdayTime: row[3] || '', // Column D: Half-day Start Time
+        suspensionTime: row[4] || '', // Column E: Work Suspension Time
+        remarks: row[5] || '' // Column F: Remarks
+      });
+    }
+
+    // Sort by date (most recent first for better UX)
+    results.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    return results;
+
+  } catch (error) {
+    Logger.log('ERROR in apiListHolidays: ' + error.message + '\nStack: ' + error.stack);
+    throw new Error('Failed to load holidays: ' + error.message);
+  }
+}
+
+/**
+ * API: Update an existing holiday
+ * @param {number} rowNumber The row number to update
+ * @param {Date} date The date of the holiday
+ * @param {string} type The type of holiday
+ * @param {string} description Optional description
+ * @param {string} halfdayTime Optional time for half-day holidays
+ * @param {string} suspensionTime Optional time for work suspension
+ * @param {string} remarks Optional additional remarks
+ * @return {Object} Success result
+ */
+function apiUpdateHoliday(rowNumber, date, type, description, halfdayTime, suspensionTime, remarks) {
+  try {
+    const db = getDatabase();
+    const sheet = db.getSheetByName('Holidays');
+
+    if (!sheet) {
+      throw new Error('Holidays sheet not found');
+    }
+
+    // Validate inputs
+    if (!rowNumber || rowNumber < 2) {
+      throw new Error('Invalid row number');
+    }
+
+    if (!date || !(date instanceof Date)) {
+      throw new Error('Invalid date provided');
+    }
+
+    if (!type) {
+      throw new Error('Holiday type is required');
+    }
+
+    // Check for duplicate date (excluding current row)
+    const existingData = sheet.getDataRange().getValues();
+    const TIME_ZONE = getScriptTimeZone();
+    const dateStr = Utilities.formatDate(new Date(date), TIME_ZONE, 'yyyy-MM-dd');
+
+    for (let i = 1; i < existingData.length; i++) {
+      if (i + 1 === rowNumber) continue; // Skip current row
+      const existingDate = existingData[i][0];
+      if (existingDate && Utilities.formatDate(new Date(existingDate), TIME_ZONE, 'yyyy-MM-dd') === dateStr) {
+        throw new Error('A holiday already exists for this date. Please choose a different date.');
+      }
+    }
+
+    // Update the row
+    const range = sheet.getRange(rowNumber, 1, 1, 6);
+    range.setValues([
+      [
+        new Date(date),
+        type,
+        description || '',
+        halfdayTime || '',
+        suspensionTime || '',
+        remarks || ''
+      ]
+    ]);
+
+    Logger.log('Holiday updated successfully: ' + dateStr + ' - ' + type);
+    return {
+      success: true,
+      message: 'Holiday updated successfully'
+    };
+
+  } catch (error) {
+    Logger.log('ERROR in apiUpdateHoliday: ' + error.message + '\nStack: ' + error.stack);
+    throw new Error('Failed to update holiday: ' + error.message);
+  }
+}
+
+/**
+ * API: Delete a holiday
+ * @param {number} rowNumber The row number to delete
+ * @return {Object} Success result
+ */
+function apiDeleteHoliday(rowNumber) {
+  try {
+    const db = getDatabase();
+    const sheet = db.getSheetByName('Holidays');
+
+    if (!sheet) {
+      throw new Error('Holidays sheet not found');
+    }
+
+    // Validate row number
+    if (!rowNumber || rowNumber < 2) {
+      throw new Error('Invalid row number');
+    }
+
+    if (rowNumber > sheet.getLastRow()) {
+      throw new Error('Row number does not exist');
+    }
+
+    // Delete the row
+    sheet.deleteRow(rowNumber);
+
+    Logger.log('Holiday deleted successfully from row: ' + rowNumber);
+    return {
+      success: true,
+      message: 'Holiday deleted successfully'
+    };
+
+  } catch (error) {
+    Logger.log('ERROR in apiDeleteHoliday: ' + error.message + '\nStack: ' + error.stack);
+    throw new Error('Failed to delete holiday: ' + error.message);
+  }
+}
+
+
+// --- Settings & Configuration ---
+
+/**
+ * API wrapper for getting dropdown options for Positions and Offices.
+ * @return {Object} An object { positions: [...], offices: [...] }.
+ */
+function apiGetDropdownOptions() {
+  // This function is a wrapper. The core logic is assumed to be
+  // in another file (e.g., Settings.gs or Logic.gs).
+  return getDropdownOptions();
+}
+
+/**
+ * Gets the current signatories from the Settings sheet.
+ */
+function apiGetSignatories() {
+  try {
+    const settings = getSheetDataNoHeader('Signatories'); // Changed from 'Settings'
+    const getSetting = (key, defaultValue = "") => {
+      const row = settings.find(r => r[0] === key);
+      return row ? row[1] : defaultValue;
+    };
+
+    return {
+      issuedByName: getSetting("SIGNATORY_ISSUED_BY_NAME", "NIDA O. TRINIDAD"),
+      issuedByPosition: getSetting("SIGNATORY_ISSUED_BY_POSITION", "Administrative Officer V")
+      // REMOVED: notedByName and notedByPosition
+    };
+  } catch (e) {
+    Logger.log(`Error in apiGetSignatories: ${e}`);
+    throw new Error(`Failed to get signatories: ${e.message}`);
+  }
+}
+
+/**
+ * Saves the signatories to the Settings sheet.
+ */
+function apiSaveSignatories(signatories) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    const db = SpreadsheetApp.openById(DATABASE_ID);
+    const sheet = db.getSheetByName('Signatories'); // Changed from 'Settings'
+    const data = sheet.getDataRange().getValues();
+
+    const settingsToUpdate = {
+      "SIGNATORY_ISSUED_BY_NAME": signatories.issuedByName,
+      "SIGNATORY_ISSUED_BY_POSITION": signatories.issuedByPosition
+      // REMOVED: notedByName and notedByPosition
+    };
+
+    const keysToUpdate = Object.keys(settingsToUpdate);
+    let updatedCount = 0;
+
+    // Update existing keys
+    for (let i = 1; i < data.length; i++) { // Start from row 2 (index 1)
+      const key = data[i][0];
+      if (keysToUpdate.includes(key)) {
+        sheet.getRange(i + 1, 2).setValue(settingsToUpdate[key]); // Column 2 (B) is the value
+        sheet.getRange(i + 1, 4).setValue(new Date()); // Column 4 (D) is Last Updated
+        sheet.getRange(i + 1, 5).setValue(getCurrentUserEmail()); // Column 5 (E) is Updated By
+
+        // Remove key from list once updated
+        keysToUpdate.splice(keysToUpdate.indexOf(key), 1);
+        updatedCount++;
+      }
+    }
+
+    // Add new keys if they didn't exist
+    const newRows = [];
+    for (const key of keysToUpdate) {
+      newRows.push([
+        key,
+        settingsToUpdate[key],
+        `Signatory for COC Certificates`, // Description
+        new Date(), // Last Updated
+        getCurrentUserEmail() // Updated By
+      ]);
+    }
+
+    if (newRows.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, newRows[0].length).setValues(newRows);
+    }
+
+    return {
+      success: true,
+      updated: updatedCount,
+      added: newRows.length
+    };
+
+  } catch (e) {
+    Logger.log(`Error in apiSaveSignatories: ${e}`);
+    throw new Error(`Failed to save signatories: ${e.message}`);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+// --- Reports & Dashboard ---
+
+/**
+ * Server API wrapper for dashboard stats.
+ *
+ * @return {Object} Stats for dashboard display.
+ */
+function apiGetDashboardStats() {
+  // This function is a wrapper. The core logic is assumed to be
+  // in another file (e.g., Reports.gs or Logic.gs).
+  return getDashboardStats();
+}
+
+/**
+ * API: Get Report Data
+ */
+function apiGetReport(type, startDate, endDate) {
+  // This function is a wrapper. The core logic is assumed to be
+  // in another file (e.g., Reports.gs or Logic.gs).
+  return getReportData(type, startDate, endDate);
+}
+
+
+// --- Data Import & Migration ---
+
+/**
+ * API: Import a single historical COC entry
+ * @param {Object} data Import data object
+ * @return {Object} Success result
+ */
+function apiImportHistoricalCOC(data) {
+  try {
+    const db = getDatabase();
+    const detailSheet = ensureCOCBalanceDetailSheet();
+    const ledgerSheet = ensureLedgerSheet();
+
+    if (!detailSheet) {
+      throw new Error('COC_Balance_Detail sheet not found');
+    }
+
+    // Validate employee
+    const employee = getEmployeeById(data.employeeId);
+    if (!employee) {
+      throw new Error('Employee not found: ' + data.employeeId);
+    }
+
+    // Validate data
+    if (!data.monthYear || !data.certificateDate || !data.hoursEarned) {
+      throw new Error('Missing required fields');
+    }
+
+    if (data.hoursUsed > data.hoursEarned) {
+      throw new Error('Hours Used cannot exceed Hours Earned');
+    }
+
+    const hoursRemaining = data.hoursEarned - data.hoursUsed;
+
+    // Generate IDs
+    const recordId = generateRecordId();
+    const certificateId = 'CERT-' + Utilities.formatDate(new Date(), getScriptTimeZone(), 'yyyyMMddHHmmssSSS');
+
+    // Parse dates
+    const certDate = new Date(data.certificateDate);
+    const expDate = new Date(data.expirationDate);
+    const importDate = new Date();
+
+    // Create the detail entry
+    const detailRow = [
+      recordId, // A: Record ID
+      data.employeeId, // B: Employee ID
+      employee.fullName, // C: Employee Name
+      data.monthYear, // D: Month-Year Earned
+      certDate, // E: Certificate Date
+      data.hoursEarned, // F: Hours Earned
+      data.hoursUsed, // G: Hours Used
+      hoursRemaining, // H: Hours Remaining
+      data.status, // I: Status
+      expDate, // J: Expiration Date
+      certificateId, // K: Certificate ID
+      importDate, // L: Date Created
+      Session.getActiveUser().getEmail(), // M: Created By
+      data.remarks || 'Historical Import' // N: Remarks
+    ];
+
+    detailSheet.appendRow(detailRow);
+    Logger.log('Historical COC entry imported: ' + recordId);
+
+    // Add ledger entry if there are hours
+    if (data.hoursEarned > 0) {
+      const ledgerRow = [
+        generateLedgerEntryId(),
+        data.employeeId,
+        employee.fullName,
+        importDate,
+        'Historical Import',
+        recordId,
+        data.hoursEarned,
+        0, // No CTO used in import
+        getCurrentCOCBalance(data.employeeId),
+        data.monthYear,
+        expDate,
+        Session.getActiveUser().getEmail(),
+        data.remarks || 'Historical data import'
+      ];
+
+      ledgerSheet.appendRow(ledgerRow);
+      Logger.log('Ledger entry created for historical import');
+    }
+
+    return {
+      success: true,
+      message: 'Historical COC entry imported successfully',
+      recordId: recordId
+    };
+
+  } catch (error) {
+    Logger.log('ERROR in apiImportHistoricalCOC: ' + error.message + '\nStack: ' + error.stack);
+    throw new Error('Failed to import historical COC: ' + error.message);
+  }
+}
+
+/**
+ * API: Import multiple historical COC entries from CSV
+ * @param {Array} csvData Array of CSV rows (first row is headers)
+ * @return {Object} Result with success and error counts
+ */
+function apiImportHistoricalCOCBatch(csvData) {
+  try {
+    if (!csvData || csvData.length < 2) {
+      throw new Error('CSV data is empty or invalid');
+    }
+
+    let successCount = 0;
+    let errorCount = 0;
+    const errors = [];
+
+    // Expected headers: Employee ID, Month-Year, Certificate Date, Hours Earned, Hours Used, Status, Remarks
+    const headers = csvData[0];
+
+    // Skip header row, process data rows
+    for (let i = 1; i < csvData.length; i++) {
+      const row = csvData[i];
+
+      // Skip empty rows
+      if (!row[0] || row[0].trim() === '') {
+        continue;
+      }
+
+      try {
+        // Parse row data
+        const employeeId = row[0].trim();
+        const monthYear = row[1].trim();
+        const certificateDate = row[2].trim();
+        const hoursEarned = parseFloat(row[3]) || 0;
+        const hoursUsed = parseFloat(row[4]) || 0;
+        const status = row[5].trim() || 'Active';
+        const remarks = row[6] || 'CSV Import';
+
+        // Calculate expiration date (Certificate Date + 1 year - 1 day)
+        const certDate = new Date(certificateDate);
+        const expDate = new Date(certDate);
+        expDate.setFullYear(expDate.getFullYear() + 1);
+        expDate.setDate(expDate.getDate() - 1);
+
+        // Import the entry
+        const data = {
+          employeeId: employeeId,
+          monthYear: monthYear,
+          certificateDate: certificateDate,
+          expirationDate: expDate.toISOString().split('T')[0],
+          hoursEarned: hoursEarned,
+          hoursUsed: hoursUsed,
+          status: status,
+          remarks: remarks
+        };
+
+        apiImportHistoricalCOC(data);
+        successCount++;
+
+      } catch (rowError) {
+        errorCount++;
+        errors.push(`Row ${i + 1}: ${rowError.message}`);
+        Logger.log(`Error importing row ${i + 1}: ${rowError.message}`);
+      }
+    }
+
+    const result = {
+      success: true,
+      successCount: successCount,
+      errorCount: errorCount,
+      errors: errors
+    };
+
+    if (errorCount > 0) {
+      Logger.log(`Batch import completed with ${errorCount} errors: ${errors.join('; ')}`);
+    }
+
+    return result;
+
+  } catch (error) {
+    Logger.log('ERROR in apiImportHistoricalCOCBatch: ' + error.message + '\nStack: ' + error.stack);
+    throw new Error('Failed to import CSV: ' + error.message);
+  }
+}
+
+/**
+ * API: Get historical import records (last 50)
+ * @return {Array<Object>} Array of import history objects
+ */
+function apiGetHistoricalImports() {
+  try {
+    const db = getDatabase();
+    const detailSheet = db.getSheetByName('COC_Balance_Detail');
+
+    if (!detailSheet || detailSheet.getLastRow() < 2) {
+      return [];
+    }
+
+    const data = detailSheet.getDataRange().getValues();
+    const results = [];
+    const TIME_ZONE = getScriptTimeZone();
+
+    // Look for entries with "Historical Import" in remarks
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const remarks = String(row[13] || '').toLowerCase();
+
+      if (remarks.includes('historical') || remarks.includes('import') || remarks.includes('migrat')) {
+        results.push({
+          employeeId: row[1],
+          employeeName: row[2],
+          monthYear: row[3],
+          certificateDate: Utilities.formatDate(new Date(row[4]), TIME_ZONE, 'MMM dd, yyyy'),
+          hoursEarned: Number(row[5]).toFixed(2),
+          hoursUsed: Number(row[6]).toFixed(2),
+          hoursRemaining: Number(row[7]).toFixed(2),
+          status: row[8],
+          importedDate: Utilities.formatDate(new Date(row[11]), TIME_ZONE, 'MMM dd, yyyy HH:mm')
+        });
+      }
+    }
+
+    // Sort by import date (most recent first)
+    results.sort((a, b) => {
+      const dateA = new Date(a.importedDate);
+      const dateB = new Date(b.importedDate);
+      return dateB - dateA;
+    });
+
+    // Return last 50 entries
+    return results.slice(0, 50);
+
+  } catch (error) {
+    Logger.log('ERROR in apiGetHistoricalImports: ' + error.message + '\nStack: ' + error.stack);
+    throw new Error('Failed to load import history: ' + error.message);
+  }
+}
+
+/**
+ * Add a historical COC record manually
+ */
+function apiAddHistoricalCocRecord(employeeId, recordObject) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    Logger.log('=== Adding Historical COC Record ===');
+    Logger.log('Employee ID: ' + employeeId);
+    Logger.log('Record: ' + JSON.stringify(recordObject));
+
+    // Validate inputs
+    if (!employeeId) {
+      throw new Error('Employee ID is required');
+    }
+
+    if (!recordObject || typeof recordObject !== 'object') {
+      throw new Error('Invalid record object');
+    }
+
+    if (!recordObject.month || !recordObject.year || !recordObject.earned || !recordObject.issueDate) {
+      throw new Error('Missing required fields: month, year, earned, and issueDate are required');
+    }
+
+    const earned = parseFloat(recordObject.earned);
+    const used = parseFloat(recordObject.used) || 0;
+    const month = parseInt(recordObject.month);
+    const year = parseInt(recordObject.year);
+
+    // Validate 40 hours per month limit
+    if (earned > 40) {
+      throw new Error('Each employee may accrue not more than 40 hours of COCs in a month');
+    }
+
+    if (earned <= 0) {
+      throw new Error('COC Earned must be greater than 0');
+    }
+
+    if (used > earned) {
+      throw new Error('COC Used cannot exceed COC Earned');
+    }
+
+    const remaining = earned - used;
+
+    // Validate employee exists
+    const employee = getEmployeeById(employeeId);
+    if (!employee) {
+      throw new Error('Employee not found: ' + employeeId);
+    }
+
+    Logger.log('Employee found: ' + employee.fullName);
+
+    // ✅ v2.2: Check if employee has real COC records (lock check)
+    if (apiCheckEmployeeHasRealCOC(employeeId)) {
+      throw new Error('Cannot add historical records because this employee has active COC recording. Please use "Record COC Earned" for new entries.');
+    }
+
+    // Check for duplicate month-year
+    const existingHistory = apiGetEmployeeCocHistory(employeeId);
+    const duplicate = existingHistory.find(h =>
+      parseInt(h.year) === year && h.monthNum === month
+    );
+    if (duplicate) {
+      const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      throw new Error('A COC record for ' + monthNames[month] + ' ' + year + ' already exists. Please edit or delete the existing record instead.');
+    }
+
+    // Validate 120 hours total balance limit
+    const currentBalance = getCurrentCOCBalance(employeeId);
+    const newBalance = currentBalance + remaining;
+
+    if (newBalance > 120) {
+      const canAdd = 120 - currentBalance;
+      throw new Error('The unexpended balance cannot exceed 120 hours. Current balance: ' + currentBalance.toFixed(2) + ' hrs. Maximum you can add: ' + canAdd.toFixed(2) + ' hrs (considering used hours).');
+    }
+
+    // Validate issue date is not before last day of month
+    const issueDate = new Date(recordObject.issueDate);
+    const lastDayOfMonth = new Date(year, month, 0);
+
+    if (issueDate < lastDayOfMonth) {
+      const lastDayFormatted = Utilities.formatDate(lastDayOfMonth, getScriptTimeZone(), 'MMMM dd, yyyy');
+      throw new Error('Date of Issuance cannot be earlier than the last day of the month (' + lastDayFormatted + ')');
+    }
+
+    // Get COC validity from Settings
+    const settings = getSettings();
+    const validityMonths = parseInt(settings['COC_VALIDITY_MONTHS']) || 12;
+
+    // Calculate dates
+    const expiryDate = new Date(issueDate);
+    expiryDate.setMonth(expiryDate.getMonth() + validityMonths);
+    expiryDate.setDate(expiryDate.getDate() - 1);
+
+    Logger.log('Issue Date: ' + formatDate(issueDate));
+    Logger.log('Expiry Date: ' + formatDate(expiryDate));
+
+    // Generate IDs
+    const TIME_ZONE = getScriptTimeZone();
+    const certId = 'CERT-' + Utilities.formatDate(new Date(), TIME_ZONE, 'yyyyMMddHHmmssSSS');
+    const detailId = generateCOCDetailEntryId();
+    const ledgerIdEarned = generateLedgerEntryId();
+
+    // Format month-year as "YYYY-MM"
+    const monthYear = year + '-' + String(month).padStart(2, '0');
+
+    // Determine status
+    const now = new Date();
+    let status = STATUS_ACTIVE;
+    if (expiryDate < now) {
+      status = STATUS_EXPIRED;
+    } else if (remaining === 0) {
+      status = STATUS_DEPLETED;
+    }
+
+    Logger.log('Status: ' + status);
+
+    const db = getDatabase();
+    const certSheet = db.getSheetByName('COC_Certificates');
+    const detailSheet = ensureCOCBalanceDetailSheet();
+    const ledgerSheet = ensureLedgerSheet();
+
+    if (!certSheet) {
+      throw new Error('COC_Certificates sheet not found');
+    }
+
+    // Write to COC_Certificates
+    certSheet.appendRow([
+      certId,
+      employeeId,
+      employee.fullName,
+      monthYear,
+      earned,
+      1,
+      issueDate,
+      expiryDate,
+      '',
+      '',
+      status,
+      now,
+      Session.getActiveUser().getEmail()
+    ]);
+
+    Logger.log('✓ Written to COC_Certificates');
+
+    // Write to COC_Balance_Detail
+    detailSheet.appendRow([
+      detailId,
+      employeeId,
+      employee.fullName,
+      certId,
+      'HIST-' + detailId, // ✅ HIST- prefix for historical records
+      monthYear,
+      issueDate,
+      'Historical',
+      earned,
+      used,
+      remaining,
+      issueDate,
+      expiryDate,
+      status,
+      now,
+      Session.getActiveUser().getEmail(),
+      now,
+      'Historical COC import - ' + monthYear
+    ]);
+
+    Logger.log('✓ Written to COC_Balance_Detail');
+
+    // Write to COC_Ledger (EARNED entry)
+    const balanceBefore = currentBalance;
+    const balanceAfterEarned = currentBalance + earned;
+
+    ledgerSheet.appendRow([
+      ledgerIdEarned,
+      employeeId,
+      employee.fullName,
+      now,
+      TR_TYPE_EARNED,
+      certId,
+      balanceBefore,
+      earned,
+      0,
+      0,
+      0,
+      balanceAfterEarned,
+      monthYear,
+      expiryDate,
+      Session.getActiveUser().getEmail(),
+      now,
+      'Historical COC import - ' + monthYear,
+      '',
+      ''
+    ]);
+
+    Logger.log('✓ Written to COC_Ledger (EARNED)');
+
+    // Write to COC_Ledger (USED entry) if applicable
+    if (used > 0) {
+      const ledgerIdUsed = generateLedgerEntryId();
+      const balanceAfterUsed = balanceAfterEarned - used;
+
+      ledgerSheet.appendRow([
+        ledgerIdUsed,
+        employeeId,
+        employee.fullName,
+        now,
+        TR_TYPE_USED,
+        certId,
+        balanceAfterEarned,
+        0,
+        used,
+        0,
+        0,
+        balanceAfterUsed,
+        monthYear,
+        expiryDate,
+        Session.getActiveUser().getEmail(),
+        now,
+        'Historical COC import (used) - ' + monthYear,
+        '',
+        ''
+      ]);
+
+      Logger.log('✓ Written to COC_Ledger (USED)');
+    }
+
+    Logger.log('=== Historical COC Record Added Successfully ===');
+
+    return {
+      success: true,
+      certificateId: certId,
+      message: 'Historical COC record added successfully'
+    };
+
+  } catch (error) {
+    Logger.log('ERROR in apiAddHistoricalCocRecord: ' + error.message);
+    Logger.log('Stack: ' + error.stack);
+
+    return {
+      success: false,
+      message: error.message || 'Failed to add historical COC record'
+    };
+
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Delete a historical COC record
+ */
+function apiDeleteHistoricalCocRecord(certificateId) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    Logger.log('=== Deleting Historical COC Record ===');
+    Logger.log('Certificate ID: ' + certificateId);
+
+    if (!certificateId) {
+      throw new Error('Certificate ID is required');
+    }
+
+    const db = getDatabase();
+    const certSheet = db.getSheetByName('COC_Certificates');
+    const detailSheet = db.getSheetByName('COC_Balance_Detail');
+    const ledgerSheet = db.getSheetByName('COC_Ledger');
+
+    if (!certSheet || !detailSheet || !ledgerSheet) {
+      throw new Error('Required sheets not found');
+    }
+
+    // Find and verify it's a historical record
+    const certData = certSheet.getDataRange().getValues();
+    let certRow = -1;
+    let employeeId = '';
+
+    for (let i = 1; i < certData.length; i++) {
+      if (certData[i][CERT_COLS.CERTIFICATE_ID] === certificateId) {
+        certRow = i + 1;
+        employeeId = certData[i][CERT_COLS.EMPLOYEE_ID];
+        break;
+      }
+    }
+
+    if (certRow === -1) {
+      throw new Error('Certificate not found');
+    }
+
+    // Check if this is a historical record
+    const detailData = detailSheet.getDataRange().getValues();
+    let isHistorical = false;
+    for (let i = 1; i < detailData.length; i++) {
+      if (detailData[i][DETAIL_COLS.CERTIFICATE_ID] === certificateId) {
+        const recordId = detailData[i][DETAIL_COLS.RECORD_ID];
+        if (String(recordId).startsWith('HIST-')) {
+          isHistorical = true;
+        }
+        break;
+      }
+    }
+
+    if (!isHistorical) {
+      throw new Error('Cannot delete real COC records. Only historical records can be deleted.');
+    }
+
+    // ✅ v2.2: Check if employee has real COC records (lock check)
+    if (apiCheckEmployeeHasRealCOC(employeeId)) {
+      throw new Error('Cannot delete historical records because this employee has active COC recording. Please contact system administrator.');
+    }
+
+    // Delete from COC_Certificates
+    certSheet.deleteRow(certRow);
+    Logger.log('✓ Deleted from COC_Certificates');
+
+    // Delete from COC_Balance_Detail
+    for (let i = detailData.length - 1; i >= 1; i--) {
+      if (detailData[i][DETAIL_COLS.CERTIFICATE_ID] === certificateId) {
+        detailSheet.deleteRow(i + 1);
+        Logger.log('✓ Deleted from COC_Balance_Detail (row ' + (i + 1) + ')');
+      }
+    }
+
+    // Delete from COC_Ledger
+    const ledgerData = ledgerSheet.getDataRange().getValues();
+    for (let i = ledgerData.length - 1; i >= 1; i--) {
+      if (ledgerData[i][LEDGER_COLS.REFERENCE_ID] === certificateId) {
+        ledgerSheet.deleteRow(i + 1);
+        Logger.log('✓ Deleted from COC_Ledger (row ' + (i + 1) + ')');
+      }
+    }
+
+    Logger.log('=== Historical COC Record Deleted Successfully ===');
+
+    return {
+      success: true,
+      message: 'COC record deleted successfully'
+    };
+
+  } catch (error) {
+    Logger.log('ERROR in apiDeleteHistoricalCocRecord: ' + error.message);
+    Logger.log('Stack: ' + error.stack);
+
+    return {
+      success: false,
+      message: error.message || 'Failed to delete COC record'
+    };
+
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * ✅ v2.2: NEW - Update a historical COC record
+ *
+ * Allows editing of historical records ONLY if employee has no real COC records
+ * Validates that earned amount is not reduced below used amount
+ *
+ * @param {string} certificateId The certificate ID to update
+ * @param {Object} updateData Object with: month, year, earned, used, issueDate
+ * @return {Object} Result object with success status
+ */
+function apiUpdateHistoricalCocRecord(certificateId, updateData) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    Logger.log('=== Updating Historical COC Record ===');
+    Logger.log('Certificate ID: ' + certificateId);
+    Logger.log('Update Data: ' + JSON.stringify(updateData));
+
+    if (!certificateId) {
+      throw new Error('Certificate ID is required');
+    }
+
+    if (!updateData || typeof updateData !== 'object') {
+      throw new Error('Invalid update data');
+    }
+
+    const db = getDatabase();
+    const certSheet = db.getSheetByName('COC_Certificates');
+    const detailSheet = db.getSheetByName('COC_Balance_Detail');
+    const ledgerSheet = db.getSheetByName('COC_Ledger');
+
+    if (!certSheet || !detailSheet || !ledgerSheet) {
+      throw new Error('Required sheets not found');
+    }
+
+    // Find the certificate
+    const certData = certSheet.getDataRange().getValues();
+    let certRow = -1;
+    let employeeId = '';
+    let oldRecordId = '';
+
+    for (let i = 1; i < certData.length; i++) {
+      if (certData[i][CERT_COLS.CERTIFICATE_ID] === certificateId) {
+        certRow = i + 1;
+        employeeId = certData[i][CERT_COLS.EMPLOYEE_ID];
+        break;
+      }
+    }
+
+    if (certRow === -1) {
+      throw new Error('Certificate not found');
+    }
+
+    // Get record ID from detail sheet
+    const detailData = detailSheet.getDataRange().getValues();
+    let detailRow = -1;
+    for (let i = 1; i < detailData.length; i++) {
+      if (detailData[i][DETAIL_COLS.CERTIFICATE_ID] === certificateId) {
+        detailRow = i + 1;
+        oldRecordId = detailData[i][DETAIL_COLS.RECORD_ID];
+        break;
+      }
+    }
+
+    // ✅ v2.2: Check if this is a historical record
+    if (!oldRecordId.startsWith('HIST-')) {
+      throw new Error('Cannot edit real COC records. Only historical records can be edited.');
+    }
+
+    // ✅ v2.2: Check if employee has real COC records (lock check)
+    if (apiCheckEmployeeHasRealCOC(employeeId)) {
+      throw new Error('Cannot edit historical records because this employee has active COC recording. Please contact system administrator for corrections.');
+    }
+
+    // Validate update data
+    if (!updateData.month || !updateData.year || !updateData.earned || !updateData.issueDate) {
+      throw new Error('Missing required fields: month, year, earned, and issueDate are required');
+    }
+
+    const earned = parseFloat(updateData.earned);
+    const used = parseFloat(updateData.used) || 0;
+    const month = parseInt(updateData.month);
+    const year = parseInt(updateData.year);
+
+    // Validate 40 hours per month limit
+    if (earned > 40) {
+      throw new Error('Each employee may accrue not more than 40 hours of COCs in a month');
+    }
+
+    if (earned <= 0) {
+      throw new Error('COC Earned must be greater than 0');
+    }
+
+    if (used > earned) {
+      throw new Error('COC Used cannot exceed COC Earned');
+    }
+
+    // ✅ v2.2: Get current used amount from detail sheet
+    let currentUsed = 0;
+    if (detailRow !== -1) {
+      currentUsed = parseFloat(detailData[detailRow - 1][DETAIL_COLS.HOURS_USED]) || 0;
+    }
+
+    // ✅ v2.2: Validate not reducing below used amount
+    if (earned < currentUsed) {
+      throw new Error('Cannot reduce COC Earned below hours already used (' + currentUsed.toFixed(2) + ' hrs). Please adjust CTO applications first.');
+    }
+
+    const remaining = earned - used;
+
+    // Validate employee exists
+    const employee = getEmployeeById(employeeId);
+    if (!employee) {
+      throw new Error('Employee not found: ' + employeeId);
+    }
+
+    // Check for duplicate month-year (excluding current record)
+    const existingHistory = apiGetEmployeeCocHistory(employeeId);
+    const duplicate = existingHistory.find(h =>
+      parseInt(h.year) === year &&
+      h.monthNum === month &&
+      h.certificateId !== certificateId
+    );
+    if (duplicate) {
+      const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      throw new Error('A COC record for ' + monthNames[month] + ' ' + year + ' already exists.');
+    }
+
+    // Validate 120 hours total balance limit
+    const currentBalance = getCurrentCOCBalance(employeeId);
+    const oldEarned = parseFloat(certData[certRow - 1][CERT_COLS.TOTAL_COC_EARNED]) || 0;
+    const oldUsed = parseFloat(detailData[detailRow - 1][DETAIL_COLS.HOURS_USED]) || 0;
+    const oldRemaining = oldEarned - oldUsed;
+
+    const newBalance = currentBalance - oldRemaining + remaining;
+
+    if (newBalance > 120) {
+      const canAdd = 120 - (currentBalance - oldRemaining);
+      throw new Error('The unexpended balance cannot exceed 120 hours. Current balance: ' + currentBalance.toFixed(2) + ' hrs. Maximum you can set: ' + canAdd.toFixed(2) + ' hrs (considering used hours).');
+    }
+
+    // Validate issue date
+    const issueDate = new Date(updateData.issueDate);
+    const lastDayOfMonth = new Date(year, month, 0);
+
+    if (issueDate < lastDayOfMonth) {
+      const lastDayFormatted = Utilities.formatDate(lastDayOfMonth, getScriptTimeZone(), 'MMMM dd, yyyy');
+      throw new Error('Date of Issuance cannot be earlier than the last day of the month (' + lastDayFormatted + ')');
+    }
+
+    // Calculate expiration date
+    const settings = getSettings();
+    const validityMonths = parseInt(settings['COC_VALIDITY_MONTHS']) || 12;
+    const expiryDate = new Date(issueDate);
+    expiryDate.setMonth(expiryDate.getMonth() + validityMonths);
+    expiryDate.setDate(expiryDate.getDate() - 1);
+
+    const monthYear = year + '-' + String(month).padStart(2, '0');
+
+    // Determine status
+    const now = new Date();
+    let status = STATUS_ACTIVE;
+    if (expiryDate < now) {
+      status = STATUS_EXPIRED;
+    } else if (remaining === 0) {
+      status = STATUS_DEPLETED;
+    }
+
+    // Update COC_Certificates
+    certSheet.getRange(certRow, CERT_COLS.MONTH_YEAR + 1).setValue(monthYear);
+    certSheet.getRange(certRow, CERT_COLS.TOTAL_COC_EARNED + 1).setValue(earned);
+    certSheet.getRange(certRow, CERT_COLS.ISSUE_DATE + 1).setValue(issueDate);
+    certSheet.getRange(certRow, CERT_COLS.EXPIRATION_DATE + 1).setValue(expiryDate);
+    certSheet.getRange(certRow, CERT_COLS.STATUS + 1).setValue(status);
+
+    Logger.log('✓ Updated COC_Certificates');
+
+    // Update COC_Balance_Detail
+    if (detailRow !== -1) {
+      detailSheet.getRange(detailRow, DETAIL_COLS.MONTH_YEAR + 1).setValue(monthYear);
+      detailSheet.getRange(detailRow, DETAIL_COLS.DATE_EARNED + 1).setValue(issueDate);
+      detailSheet.getRange(detailRow, DETAIL_COLS.HOURS_EARNED + 1).setValue(earned);
+      detailSheet.getRange(detailRow, DETAIL_COLS.HOURS_USED + 1).setValue(used);
+      detailSheet.getRange(detailRow, DETAIL_COLS.HOURS_REMAINING + 1).setValue(remaining);
+      detailSheet.getRange(detailRow, DETAIL_COLS.CERTIFICATE_ISSUE_DATE + 1).setValue(issueDate);
+      detailSheet.getRange(detailRow, DETAIL_COLS.EXPIRATION_DATE + 1).setValue(expiryDate);
+      detailSheet.getRange(detailRow, DETAIL_COLS.STATUS + 1).setValue(status);
+      detailSheet.getRange(detailRow, DETAIL_COLS.LAST_UPDATED + 1).setValue(now);
+
+      Logger.log('✓ Updated COC_Balance_Detail');
+    }
+
+    // Update COC_Ledger entries for this certificate
+    const ledgerData = ledgerSheet.getDataRange().getValues();
+    for (let i = 1; i < ledgerData.length; i++) {
+      if (ledgerData[i][LEDGER_COLS.REFERENCE_ID] === certificateId) {
+        const transType = ledgerData[i][LEDGER_COLS.TRANSACTION_TYPE];
+
+        if (transType === TR_TYPE_EARNED) {
+          ledgerSheet.getRange(i + 1, LEDGER_COLS.COC_EARNED + 1).setValue(earned);
+          ledgerSheet.getRange(i + 1, LEDGER_COLS.MONTH_YEAR_EARNED + 1).setValue(monthYear);
+          ledgerSheet.getRange(i + 1, LEDGER_COLS.EXPIRATION_DATE + 1).setValue(expiryDate);
+          ledgerSheet.getRange(i + 1, LEDGER_COLS.REMARKS + 1).setValue('Historical COC updated - ' + monthYear);
+        } else if (transType === TR_TYPE_USED) {
+          ledgerSheet.getRange(i + 1, LEDGER_COLS.CTO_USED + 1).setValue(used);
+          ledgerSheet.getRange(i + 1, LEDGER_COLS.MONTH_YEAR_EARNED + 1).setValue(monthYear);
+          ledgerSheet.getRange(i + 1, LEDGER_COLS.EXPIRATION_DATE + 1).setValue(expiryDate);
+          ledgerSheet.getRange(i + 1, LEDGER_COLS.REMARKS + 1).setValue('Historical COC updated (used) - ' + monthYear);
+        }
+      }
+    }
+
+    Logger.log('✓ Updated COC_Ledger');
+
+    Logger.log('=== Historical COC Record Updated Successfully ===');
+
+    return {
+      success: true,
+      message: 'Historical COC record updated successfully'
+    };
+
+  } catch (error) {
+    Logger.log('ERROR in apiUpdateHistoricalCocRecord: ' + error.message);
+    Logger.log('Stack: ' + error.stack);
+
+    return {
+      success: false,
+      message: error.message || 'Failed to update COC record'
+    };
+
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * API: Run migration
+ */
+function apiMigrateExistingInitialBalances() {
+  // This function is a wrapper. The core logic is assumed to be
+  // in another file (e.g., Migration.gs or Logic.gs).
+  return migrateExistingInitialBalances();
+}
+
+/**
+ * API: Initialize COC_Balance_Detail sheet
+ */
+function apiInitializeCOCBalanceDetail() {
+  // This function is a wrapper. The core logic is assumed to be
+  // in another file (e.g., Setup.gs or Logic.gs).
+  ensureCOCBalanceDetailSheet();
+  return {
+    success: true,
+    message: 'COC_Balance_Detail sheet initialized'
+  };
+}
+
+
+// --- FIFO Integrity ---
+
+/**
+ * API: Run FIFO integrity check for all employees or specific employee
+ * @param {string} employeeId Optional - specific employee to check, or null for all
+ * @return {Object} Report with findings and discrepancies
+ */
+function apiFIFOIntegrityCheck(employeeId) {
+  try {
+    const db = getDatabase();
+    const detailSheet = db.getSheetByName('COC_Balance_Detail');
+    const ctoSheet = db.getSheetByName('CTO_Applications');
+
+    if (!detailSheet) {
+      throw new Error('COC_Balance_Detail sheet not found');
+    }
+
+    if (!ctoSheet) {
+      throw new Error('CTO_Applications sheet not found');
+    }
+
+    Logger.log('=== Starting FIFO Integrity Check ===');
+    Logger.log('Employee filter: ' + (employeeId || 'ALL'));
+
+    const detailData = detailSheet.getDataRange().getValues();
+    const ctoData = ctoSheet.getDataRange().getValues();
+
+    const report = {
+      checkDate: new Date(),
+      employeeId: employeeId || 'ALL',
+      totalEmployeesChecked: 0,
+      totalDiscrepancies: 0,
+      discrepancyDetails: [],
+      integrityIssues: [],
+      summary: ''
+    };
+
+    // Get unique employees to check
+    const employeesToCheck = new Set();
+    for (let i = 1; i < detailData.length; i++) {
+      const empId = detailData[i][DETAIL_COLS.EMPLOYEE_ID];
+      if (!employeeId || empId === employeeId) {
+        employeesToCheck.add(empId);
+      }
+    }
+
+    // Check each employee
+    for (const empId of employeesToCheck) {
+      Logger.log(`Checking employee: ${empId}`);
+      const employeeIssues = checkEmployeeFIFO(empId, detailData, ctoData);
+
+      if (employeeIssues.length > 0) {
+        report.totalDiscrepancies++;
+        report.integrityIssues.push({
+          employeeId: empId,
+          issues: employeeIssues
+        });
+      }
+
+      report.totalEmployeesChecked++;
+    }
+
+    // Generate summary
+    if (report.totalDiscrepancies === 0) {
+      report.summary = `✓ All ${report.totalEmployeesChecked} employee(s) passed FIFO integrity check. No discrepancies found.`;
+    } else {
+      report.summary = `⚠ Found FIFO discrepancies for ${report.totalDiscrepancies} out of ${report.totalEmployeesChecked} employee(s).`;
+    }
+
+    Logger.log('=== FIFO Integrity Check Complete ===');
+    Logger.log(report.summary);
+
+    return report;
+
+  } catch (error) {
+    Logger.log('ERROR in apiFIFOIntegrityCheck: ' + error.message + '\nStack: ' + error.stack);
+    throw new Error('FIFO integrity check failed: ' + error.message);
+  }
+}
+
+
+/**
+ * API: Fix FIFO discrepancies for an employee
+ * This will recalculate all COC balances using proper FIFO logic
+ * @param {string} employeeId Employee ID to fix
+ * @param {boolean} dryRun If true, only simulate the fix without applying changes
+ * @return {Object} Result of the fix operation
+ */
+function apiFIFOFix(employeeId, dryRun) {
+  try {
+    if (!employeeId) {
+      throw new Error('Employee ID is required');
+    }
+
+    const db = getDatabase();
+    const detailSheet = db.getSheetByName('COC_Balance_Detail');
+    const ctoSheet = db.getSheetByName('CTO_Applications');
+
+    Logger.log(`=== ${dryRun ? 'Simulating' : 'Executing'} FIFO Fix for ${employeeId} ===`);
+
+    const detailData = detailSheet.getDataRange().getValues();
+    const ctoData = ctoSheet.getDataRange().getValues();
+
+    // Get all COC entries for this employee
+    const cocEntries = [];
+    for (let i = 1; i < detailData.length; i++) {
+      const row = detailData[i];
+      if (row[DETAIL_COLS.EMPLOYEE_ID] === employeeId) {
+        let certificateDate = row[DETAIL_COLS.CERTIFICATE_DATE];
+        if (!(certificateDate instanceof Date) || isNaN(certificateDate.getTime())) {
+          certificateDate = parseMonthYear(row[DETAIL_COLS.MONTH_YEAR]) || new Date(row[DETAIL_COLS.DATE_CREATED]);
+        }
+
+        cocEntries.push({
+          rowNumber: i + 1,
+          recordId: row[DETAIL_COLS.RECORD_ID],
+          certificateDate: certificateDate,
+          hoursEarned: parseFloat(row[DETAIL_COLS.HOURS_EARNED]) || 0,
+          currentUsed: parseFloat(row[DETAIL_COLS.HOURS_USED]) || 0,
+          currentRemaining: parseFloat(row[DETAIL_COLS.HOURS_REMAINING]) || 0,
+          status: row[DETAIL_COLS.STATUS]
+        });
+      }
+    }
+
+    // Sort by certificate date (FIFO)
+    cocEntries.sort((a, b) => a.certificateDate - b.certificateDate);
+
+    // Reset all to unused state (for recalculation)
+    cocEntries.forEach(entry => {
+      entry.newUsed = 0;
+      entry.newRemaining = entry.hoursEarned;
+      entry.newStatus = 'Active';
+    });
+
+    // Get all approved CTO applications
+    const ctoApplications = [];
+    for (let i = 1; i < ctoData.length; i++) {
+      const row = ctoData[i];
+      if (row[1] === employeeId && row[8] === 'Approved') {
+        ctoApplications.push({
+          applicationId: row[0],
+          applicationDate: new Date(row[2]),
+          hoursRequested: parseFloat(row[3]) || 0
+        });
+      }
+    }
+
+    // Sort by application date
+    ctoApplications.sort((a, b) => a.applicationDate - b.applicationDate);
+
+    // Apply FIFO deduction
+    for (const cto of ctoApplications) {
+      let remainingToDeduct = cto.hoursRequested;
+
+      for (let i = 0; i < cocEntries.length && remainingToDeduct > 0.01; i++) {
+        if (cocEntries[i].newRemaining > 0) {
+          const hoursToDeduct = Math.min(cocEntries[i].newRemaining, remainingToDeduct);
+          cocEntries[i].newUsed += hoursToDeduct;
+          cocEntries[i].newRemaining -= hoursToDeduct;
+
+          // Update status
+          if (cocEntries[i].newRemaining < 0.01) {
+            cocEntries[i].newStatus = 'Fully Used';
+          } else if (cocEntries[i].newUsed > 0.01) {
+            cocEntries[i].newStatus = 'Partially Used';
+          }
+
+          remainingToDeduct -= hoursToDeduct;
+        }
+      }
+    }
+
+    // Prepare result
+    const result = {
+      employeeId: employeeId,
+      dryRun: dryRun,
+      changes: [],
+      summary: ''
+    };
+
+    // Compare and apply changes
+    for (const entry of cocEntries) {
+      const usedChanged = Math.abs(entry.currentUsed - entry.newUsed) > 0.01;
+      const remainingChanged = Math.abs(entry.currentRemaining - entry.newRemaining) > 0.01;
+      const statusChanged = entry.status !== entry.newStatus;
+
+      if (usedChanged || remainingChanged || statusChanged) {
+        result.changes.push({
+          recordId: entry.recordId,
+          certificateDate: entry.certificateDate,
+          before: {
+            used: entry.currentUsed.toFixed(2),
+            remaining: entry.currentRemaining.toFixed(2),
+            status: entry.status
+          },
+          after: {
+            used: entry.newUsed.toFixed(2),
+            remaining: entry.newRemaining.toFixed(2),
+            status: entry.newStatus
+          }
+        });
+
+        // Apply changes if not dry run
+        if (!dryRun) {
+          detailSheet.getRange(entry.rowNumber, DETAIL_COLS.HOURS_USED + 1).setValue(entry.newUsed);
+          detailSheet.getRange(entry.rowNumber, DETAIL_COLS.HOURS_REMAINING + 1).setValue(entry.newRemaining);
+          detailSheet.getRange(entry.rowNumber, DETAIL_COLS.STATUS + 1).setValue(entry.newStatus);
+        }
+      }
+    }
+
+    if (result.changes.length === 0) {
+      result.summary = '✓ No FIFO discrepancies found. No changes needed.';
+    } else {
+      result.summary = `${dryRun ? 'Would update' : 'Updated'} ${result.changes.length} COC record(s) to match FIFO order.`;
+    }
+
+    Logger.log(result.summary);
+    return result;
+
+  } catch (error) {
+    Logger.log('ERROR in apiFIFOFix: ' + error.message + '\nStack: ' + error.stack);
+    throw new Error('FIFO fix failed: ' + error.message);
+  }
+}
+
+
+/**
+ * API: Get detailed FIFO report for a specific employee
+ * @param {string} employeeId Employee ID
+ * @return {Object} Detailed report
+ */
+function apiFIFOEmployeeReport(employeeId) {
+  try {
+    if (!employeeId) {
+      throw new Error('Employee ID is required');
+    }
+
+    const db = getDatabase();
+    const detailSheet = db.getSheetByName('COC_Balance_Detail');
+    const ctoSheet = db.getSheetByName('CTO_Applications');
+    const TIME_ZONE = getScriptTimeZone();
+
+    const detailData = detailSheet.getDataRange().getValues();
+    const ctoData = ctoSheet.getDataRange().getValues();
+
+    // Get employee info
+    const employee = getEmployeeById(employeeId);
+    if (!employee) {
+      throw new Error('Employee not found');
+    }
+
+    // Get COC entries
+    const cocEntries = [];
+    for (let i = 1; i < detailData.length; i++) {
+      const row = detailData[i];
+      if (row[DETAIL_COLS.EMPLOYEE_ID] === employeeId) {
+        const certificateDateVal = row[DETAIL_COLS.CERTIFICATE_DATE];
+        const expirationVal = row[DETAIL_COLS.EXPIRATION_DATE];
+        const certificateDate = certificateDateVal instanceof Date && !isNaN(certificateDateVal.getTime()) ?
+          certificateDateVal :
+          parseMonthYear(row[DETAIL_COLS.MONTH_YEAR]) || new Date(row[DETAIL_COLS.DATE_CREATED]);
+        const expirationDate = expirationVal instanceof Date && !isNaN(expirationVal.getTime()) ?
+          expirationVal :
+          null;
+
+        cocEntries.push({
+          recordId: row[DETAIL_COLS.RECORD_ID],
+          monthYear: row[DETAIL_COLS.MONTH_YEAR],
+          certificateDate: Utilities.formatDate(certificateDate, TIME_ZONE, 'MMM dd, yyyy'),
+          hoursEarned: Number(row[DETAIL_COLS.HOURS_EARNED]).toFixed(2),
+          hoursUsed: Number(row[DETAIL_COLS.HOURS_USED]).toFixed(2),
+          hoursRemaining: Number(row[DETAIL_COLS.HOURS_REMAINING]).toFixed(2),
+          status: row[DETAIL_COLS.STATUS],
+          expirationDate: expirationDate ? Utilities.formatDate(expirationDate, TIME_ZONE, 'MMM dd, yyyy') : '—'
+        });
+      }
+    }
+
+    // Sort by certificate date
+    cocEntries.sort((a, b) => new Date(a.certificateDate) - new Date(b.certificateDate));
+
+    // Get CTO applications
+    const ctoApps = [];
+    for (let i = 1; i < ctoData.length; i++) {
+      const row = ctoData[i];
+      if (row[1] === employeeId && row[8] === 'Approved') {
+        ctoApps.push({
+          applicationId: row[0],
+          applicationDate: Utilities.formatDate(new Date(row[2]), TIME_ZONE, 'MMM dd, yyyy'),
+          hoursUsed: Number(row[3]).toFixed(2),
+          status: row[8]
+        });
+      }
+    }
+
+    const report = {
+      employeeId: employeeId,
+      employeeName: employee.fullName,
+      totalCOCEarned: cocEntries.reduce((sum, e) => sum + parseFloat(e.hoursEarned), 0).toFixed(2),
+      totalCOCUsed: cocEntries.reduce((sum, e) => sum + parseFloat(e.hoursUsed), 0).toFixed(2),
+      totalCOCRemaining: cocEntries.reduce((sum, e) => sum + parseFloat(e.hoursRemaining), 0).toFixed(2),
+      cocEntries: cocEntries,
+      ctoApplications: ctoApps,
+      integrityCheck: checkEmployeeFIFO(employeeId, detailData, ctoData)
+    };
+
+    return report;
+
+  } catch (error) {
+    Logger.log('ERROR in apiFIFOEmployeeReport: ' + error.message + '\nStack: ' + error.stack);
+    throw new Error('Failed to generate FIFO report: ' + error.message);
+  }
+}
