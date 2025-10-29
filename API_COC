@@ -1,0 +1,731 @@
+// -----------------------------------------------------------------------------
+// API_COC.gs
+//
+// Contains all API functions related to calculating, recording,
+// and managing COC (Compensatory Overtime Credit) records.
+// -----------------------------------------------------------------------------
+
+/**
+ * API wrapper for calculateOvertimeForDate
+ * This function is called from the frontend to automatically detect day type
+ * and calculate COC when times are entered
+ *
+ * @param {number} year - The year (e.g., 2025)
+ * @param {number} month - The month (1-12)
+ * @param {number} day - The day of the month (1-31)
+ * @param {string} amIn - AM in time (HH:mm format)
+ * @param {string} amOut - AM out time (HH:mm format)
+ * @param {string} pmIn - PM in time (HH:mm format)
+ * @param {string} pmOut - PM out time (HH:mm format)
+ * @return {Object} Result with dayType, hoursWorked, multiplier, cocEarned
+ */
+function apiCalculateOvertimeForDate(year, month, day, amIn, amOut, pmIn, pmOut) {
+  const date = new Date(year, month - 1, day);
+  // This function is a wrapper. The core logic is assumed to be
+  // in another file (e.g., Overtime.gs or Logic.gs).
+  return calculateOvertimeForDate(date, amIn, amOut, pmIn, pmOut);
+}
+
+/**
+ * @deprecated
+ * This is a duplicate of apiCalculateOvertimeForDate.
+ * Kept for compatibility, but should be removed if no longer used.
+ */
+function apiCalculateOvertime(year, month, day, amIn, amOut, pmIn, pmOut) {
+  const date = new Date(year, month - 1, day);
+  // This function is a wrapper. The core logic is assumed to be
+  // in another file (e.g., Overtime.gs or Logic.gs).
+  return calculateOvertimeForDate(date, amIn, amOut, pmIn, pmOut);
+}
+
+/**
+ * API: Get day type only (Weekday, Weekend, Holiday)
+ * Used for immediate day type detection without needing time entries
+ *
+ * @param {number} year - The year (e.g., 2025)
+ * @param {number} month - The month (1-12)
+ * @param {number} day - The day of the month (1-31)
+ * @return {string} The day type (Weekday, Weekend, Regular Holiday, Special Non-Working Holiday)
+ */
+function apiGetDayType(year, month, day) {
+  const date = new Date(year, month - 1, day);
+  // This function is a wrapper. The core logic is assumed to be
+  // in another file (e.g., Overtime.gs or Logic.gs).
+  return getDayType(date);
+}
+
+/**
+ * Records new COC entries from the form submission.
+ * This just saves the records as "Pending".
+ * The "Generate Certificate" step will finalize them.
+ */
+function apiRecordCOC(employeeId, month, year, entries) {
+  if (!employeeId || !month || !year) throw new Error("Employee ID, month, and year are required.");
+  if (!entries || entries.length === 0) throw new Error("At least one entry is required.");
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000); // Wait 30 seconds
+
+  try {
+    const monthYear = `${year}-${String(month).padStart(2, '0')}`;
+    const currentUser = getCurrentUserEmail();
+    const now = new Date();
+
+    // 1. Get Employee Details
+    const empDetails = getEmployeeDetails(employeeId);
+    if (!empDetails) throw new Error("Employee not found.");
+
+    let totalNewCOC = 0;
+    let addedCount = 0;
+    const newRecordRows = [];
+
+    // 2. Process each entry
+    for (const entry of entries) {
+      // Server-side validation and calculation
+      const result = apiCalculateOvertimeForDate(year, month, entry.day, entry.amIn, entry.amOut, entry.pmIn, entry.pmOut);
+
+      if (result.cocEarned > 0) {
+        const recordId = generateUniqueId("COC-");
+        const dateRendered = new Date(year, month - 1, entry.day);
+
+        const newRow = new Array(22).fill(''); // Initialize empty row
+        newRow[RECORD_COLS.RECORD_ID] = recordId;
+        newRow[RECORD_COLS.EMPLOYEE_ID] = employeeId;
+        newRow[RECORD_COLS.EMPLOYEE_NAME] = empDetails.fullName;
+        newRow[RECORD_COLS.MONTH_YEAR] = monthYear;
+        newRow[RECORD_COLS.DATE_RENDERED] = dateRendered;
+        newRow[RECORD_COLS.DAY_TYPE] = result.dayType;
+        newRow[RECORD_COLS.AM_IN] = entry.amIn;
+        newRow[RECORD_COLS.AM_OUT] = entry.amOut;
+        newRow[RECORD_COLS.PM_IN] = entry.pmIn;
+        newRow[RECORD_COLS.PM_OUT] = entry.pmOut;
+        newRow[RECORD_COLS.HOURS_WORKED] = result.hoursWorked;
+        newRow[RECORD_COLS.MULTIPLIER] = result.multiplier;
+        newRow[RECORD_COLS.COC_EARNED] = result.cocEarned;
+        newRow[RECORD_COLS.CERTIFICATE_ID] = ''; // Will be set upon generation
+        newRow[RECORD_COLS.DATE_RECORDED] = now;
+        newRow[RECORD_COLS.EXPIRATION_DATE] = ''; // Will be set upon generation
+        newRow[RECORD_COLS.STATUS] = STATUS_PENDING; // Set to Pending
+        newRow[RECORD_COLS.APPROVED_BY] = ''; // Assumes an approval step, or can be auto-approved
+        newRow[RECORD_COLS.APPROVED_DATE] = '';
+        newRow[RECORD_COLS.CREATED_BY] = currentUser;
+        newRow[RECORD_COLS.LAST_MODIFIED] = now;
+        newRow[RECORD_COLS.MODIFIED_BY] = currentUser;
+
+        newRecordRows.push(newRow);
+        totalNewCOC += result.cocEarned;
+        addedCount++;
+      }
+    }
+
+    if (newRecordRows.length > 0) {
+      const recordsSheet = SpreadsheetApp.openById(DATABASE_ID).getSheetByName('COC_Records');
+      recordsSheet.getRange(recordsSheet.getLastRow() + 1, 1, newRecordRows.length, newRecordRows[0].length).setValues(newRecordRows);
+    } else {
+      throw new Error("No valid COC entries to record.");
+    }
+
+    return {
+      added: addedCount,
+      totalNewCOC: totalNewCOC
+    };
+
+  } catch (e) {
+    Logger.log(`Error in apiRecordCOC: ${e}`);
+    throw new Error(`Failed to record COC entries: ${e.message}`);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Lists all recorded COC entries for a given employee and month.
+ * This is called by loadExistingRecords() in the HTML.
+ */
+function apiListCOCRecordsForMonth(employeeId, month, year) {
+  if (!employeeId || !month || !year) throw new Error("Employee ID, month, and year are required.");
+
+  try {
+    const monthYear = `${year}-${String(month).padStart(2, '0')}`;
+    const recordsData = getSheetDataNoHeader('COC_Records');
+    const certsData = getSheetDataNoHeader('COC_Certificates');
+
+    Logger.log(`apiListCOCRecordsForMonth: Searching for empId="${employeeId}", month=${month}, year=${year}, monthYear="${monthYear}"`);
+    Logger.log(`Total records in sheet: ${recordsData.length}`);
+
+    // Create a map of Certificate IDs to their URLs for easy lookup
+    const certMap = new Map();
+    certsData.forEach(cert => {
+      certMap.set(cert[CERT_COLS.CERTIFICATE_ID], {
+        url: cert[CERT_COLS.CERTIFICATE_URL],
+        pdf: cert[CERT_COLS.PDF_URL]
+      });
+    });
+
+    // Filter records - EXCLUDE CANCELLED status
+    const employeeMonthRecords = recordsData.filter(r => {
+      const rowEmpId = String(r[RECORD_COLS.EMPLOYEE_ID] || '').trim();
+      const rowMonthYear = String(r[RECORD_COLS.MONTH_YEAR] || '').trim();
+      const rowStatus = String(r[RECORD_COLS.STATUS] || '').trim();
+
+      const empMatch = rowEmpId === employeeId;
+      const monthMatch = rowMonthYear === monthYear;
+      const notCancelled = rowStatus !== STATUS_CANCELLED;
+
+      if (empMatch) {
+        Logger.log(`  Row: empId="${rowEmpId}", monthYear="${rowMonthYear}", status="${rowStatus}", matches=${empMatch && monthMatch && notCancelled}`);
+      }
+
+      return empMatch && monthMatch && notCancelled;
+    });
+
+    Logger.log(`Found ${employeeMonthRecords.length} matching records`);
+
+    // Format the records for the client
+    const formattedRecords = employeeMonthRecords.map(r => {
+      const recordId = r[RECORD_COLS.RECORD_ID];
+      const certificateId = r[RECORD_COLS.CERTIFICATE_ID];
+      const certInfo = certMap.get(certificateId);
+      const dateRendered = new Date(r[RECORD_COLS.DATE_RENDERED]);
+
+      return {
+        recordId: recordId,
+        displayDate: Utilities.formatDate(dateRendered, "GMT+8", "MMM dd, yyyy"),
+        day: dateRendered.getDate(), // Add day number to prevent timezone issues
+        dayType: r[RECORD_COLS.DAY_TYPE],
+        hoursWorked: parseFloat(r[RECORD_COLS.HOURS_WORKED] || 0),
+        cocEarned: parseFloat(r[RECORD_COLS.COC_EARNED] || 0),
+        certificateId: certificateId,
+        certificateUrl: certInfo ? certInfo.url : null,
+        pdfUrl: certInfo ? (certInfo.pdf || certInfo.url) : null // Fallback pdf to url
+      };
+    });
+
+    return formattedRecords;
+
+  } catch (e) {
+    Logger.log(`Error in apiListCOCRecordsForMonth: ${e}`);
+    throw new Error(`Failed to list COC records: ${e.message}`);
+  }
+}
+
+/**
+ * API: Get a specific COC record by ID
+ * Used to pre-fill the edit modal
+ *
+ * @param {string} recordId - The record ID to fetch
+ * @returns {Object} Record data
+ */
+function apiGetCOCRecord(recordId) {
+  if (!recordId) throw new Error("Record ID is required.");
+
+  try {
+    const db = SpreadsheetApp.openById(DATABASE_ID);
+    const recordsSheet = db.getSheetByName('COC_Records');
+    const data = recordsSheet.getDataRange().getValues();
+
+    // Find the record
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][RECORD_COLS.RECORD_ID] === recordId) {
+        const recordData = data[i];
+        const dateRendered = new Date(recordData[RECORD_COLS.DATE_RENDERED]);
+
+        return {
+          recordId: recordId,
+          employeeId: recordData[RECORD_COLS.EMPLOYEE_ID],
+          employeeName: recordData[RECORD_COLS.EMPLOYEE_NAME],
+          dateRendered: Utilities.formatDate(dateRendered, "GMT+8", "MMM dd, yyyy"),
+          day: dateRendered.getDate(),
+          dayType: recordData[RECORD_COLS.DAY_TYPE],
+          amIn: recordData[RECORD_COLS.AM_IN] || '',
+          amOut: recordData[RECORD_COLS.AM_OUT] || '',
+          pmIn: recordData[RECORD_COLS.PM_IN] || '',
+          pmOut: recordData[RECORD_COLS.PM_OUT] || '',
+          hoursWorked: parseFloat(recordData[RECORD_COLS.HOURS_WORKED] || 0),
+          multiplier: parseFloat(recordData[RECORD_COLS.MULTIPLIER] || 0),
+          cocEarned: parseFloat(recordData[RECORD_COLS.COC_EARNED] || 0),
+          certificateId: recordData[RECORD_COLS.CERTIFICATE_ID],
+          status: recordData[RECORD_COLS.STATUS]
+        };
+      }
+    }
+
+    throw new Error("Record not found.");
+
+  } catch (e) {
+    Logger.log(`Error in apiGetCOCRecord: ${e}`);
+    throw new Error(`Failed to get record: ${e.message}`);
+  }
+}
+
+/**
+ * API: Update a COC record (edit functionality)
+ * Allows editing time entries and recalculates COC earned.
+ * Logs changes in audit trail.
+ *
+ * @param {string} recordId - The record ID to update
+ * @param {string} amIn - Updated AM In time (HH:mm format)
+ * @param {string} amOut - Updated AM Out time (HH:mm format)
+ * @param {string} pmIn - Updated PM In time (HH:mm format)
+ * @param {string} pmOut - Updated PM Out time (HH:mm format)
+ * @param {string} reason - Reason for update (required)
+ * @returns {Object} Result object with updated record data
+ */
+function apiUpdateCOCRecord(recordId, amIn, amOut, pmIn, pmOut, reason) {
+  if (!recordId) throw new Error("Record ID is required.");
+  if (!reason) throw new Error("Reason for update is required.");
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    const db = SpreadsheetApp.openById(DATABASE_ID);
+    const recordsSheet = db.getSheetByName('COC_Records');
+    const data = recordsSheet.getDataRange().getValues();
+
+    const currentUser = getCurrentUserEmail();
+    const now = new Date();
+
+    // Find the record
+    let rowIndex = -1;
+    let recordData = null;
+
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][RECORD_COLS.RECORD_ID] === recordId) {
+        rowIndex = i;
+        recordData = data[i];
+        break;
+      }
+    }
+
+    if (rowIndex === -1) {
+      throw new Error("Record not found.");
+    }
+
+    // Check if record is already certificated
+    const certificateId = recordData[RECORD_COLS.CERTIFICATE_ID];
+    if (certificateId) {
+      throw new Error("Cannot edit a record that has already been certificated. Please contact administrator if you need to modify a certificated record.");
+    }
+
+    // Check current status
+    const currentStatus = recordData[RECORD_COLS.STATUS];
+    if (currentStatus === STATUS_CANCELLED) {
+      throw new Error("Cannot edit a cancelled record.");
+    }
+
+    // Store old values for audit trail
+    const oldAmIn = recordData[RECORD_COLS.AM_IN];
+    const oldAmOut = recordData[RECORD_COLS.AM_OUT];
+    const oldPmIn = recordData[RECORD_COLS.PM_IN];
+    const oldPmOut = recordData[RECORD_COLS.PM_OUT];
+    const oldHoursWorked = recordData[RECORD_COLS.HOURS_WORKED];
+    const oldCocEarned = recordData[RECORD_COLS.COC_EARNED];
+
+    // Get the date from the record
+    const dateRendered = new Date(recordData[RECORD_COLS.DATE_RENDERED]);
+
+    // Recalculate overtime with new times
+    const result = calculateOvertimeForDate(dateRendered, amIn, amOut, pmIn, pmOut);
+
+    // Update the record
+    const row = rowIndex + 1; // Convert to 1-based index
+    recordsSheet.getRange(row, RECORD_COLS.AM_IN + 1).setValue(amIn || '');
+    recordsSheet.getRange(row, RECORD_COLS.AM_OUT + 1).setValue(amOut || '');
+    recordsSheet.getRange(row, RECORD_COLS.PM_IN + 1).setValue(pmIn || '');
+    recordsSheet.getRange(row, RECORD_COLS.PM_OUT + 1).setValue(pmOut || '');
+    recordsSheet.getRange(row, RECORD_COLS.HOURS_WORKED + 1).setValue(result.hoursWorked);
+    recordsSheet.getRange(row, RECORD_COLS.MULTIPLIER + 1).setValue(result.multiplier);
+    recordsSheet.getRange(row, RECORD_COLS.COC_EARNED + 1).setValue(result.cocEarned);
+    recordsSheet.getRange(row, RECORD_COLS.LAST_MODIFIED + 1).setValue(now);
+    recordsSheet.getRange(row, RECORD_COLS.MODIFIED_BY + 1).setValue(currentUser);
+
+    // Update COC_Balance_Detail if it exists
+    const detailSheet = db.getSheetByName('COC_Balance_Detail');
+    if (detailSheet) {
+      const detailData = detailSheet.getDataRange().getValues();
+      for (let i = 1; i < detailData.length; i++) {
+        if (detailData[i][DETAIL_COLS.RECORD_ID] === recordId) {
+          const detailRow = i + 1;
+          detailSheet.getRange(detailRow, DETAIL_COLS.COC_EARNED + 1).setValue(result.cocEarned);
+          detailSheet.getRange(detailRow, DETAIL_COLS.BALANCE_REMAINING + 1).setValue(result.cocEarned);
+          break;
+        }
+      }
+    }
+
+    // Create audit trail entry in ledger
+    const ledgerSheet = db.getSheetByName('COC_Ledger');
+    if (ledgerSheet) {
+      const employeeId = recordData[RECORD_COLS.EMPLOYEE_ID];
+      const employeeName = recordData[RECORD_COLS.EMPLOYEE_NAME];
+      const monthYear = recordData[RECORD_COLS.MONTH_YEAR];
+
+      const ledgerId = generateUniqueId("LDG-");
+      const auditMessage = `COC Record Updated. Old: AM(${oldAmIn}-${oldAmOut}) PM(${oldPmIn}-${oldPmOut}) = ${oldHoursWorked.toFixed(2)}h × ${recordData[RECORD_COLS.MULTIPLIER]}x = ${oldCocEarned.toFixed(2)} COC | New: AM(${amIn || 'none'}-${amOut || 'none'}) PM(${pmIn || 'none'}-${pmOut || 'none'}) = ${result.hoursWorked.toFixed(2)}h × ${result.multiplier}x = ${result.cocEarned.toFixed(2)} COC | Reason: ${reason}`;
+
+      const ledgerRow = new Array(15).fill('');
+      ledgerRow[LEDGER_COLS.LEDGER_ID] = ledgerId;
+      ledgerRow[LEDGER_COLS.EMPLOYEE_ID] = employeeId;
+      ledgerRow[LEDGER_COLS.EMPLOYEE_NAME] = employeeName;
+      ledgerRow[LEDGER_COLS.TRANSACTION_DATE] = now;
+      ledgerRow[LEDGER_COLS.TRANSACTION_TYPE] = 'COC Updated';
+      ledgerRow[LEDGER_COLS.REFERENCE_ID] = recordId;
+      ledgerRow[LEDGER_COLS.COC_EARNED] = result.cocEarned - oldCocEarned; // Change in COC
+      ledgerRow[LEDGER_COLS.CTO_USED] = 0;
+      ledgerRow[LEDGER_COLS.MONTH_YEAR_EARNED] = monthYear;
+      ledgerRow[LEDGER_COLS.PROCESSED_BY] = currentUser;
+      ledgerRow[14] = auditMessage; // Remarks column
+
+      ledgerSheet.getRange(ledgerSheet.getLastRow() + 1, 1, 1, ledgerRow.length).setValues([ledgerRow]);
+    }
+
+    Logger.log(`COC Record ${recordId} updated by ${currentUser}. Reason: ${reason}`);
+
+    return {
+      success: true,
+      message: "Record updated successfully.",
+      updatedRecord: {
+        recordId: recordId,
+        amIn: amIn || '',
+        amOut: amOut || '',
+        pmIn: pmIn || '',
+        pmOut: pmOut || '',
+        hoursWorked: result.hoursWorked,
+        multiplier: result.multiplier,
+        cocEarned: result.cocEarned,
+        dayType: result.dayType
+      }
+    };
+
+  } catch (e) {
+    Logger.log(`Error in apiUpdateCOCRecord: ${e}`);
+    throw new Error(`Failed to update record: ${e.message}`);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Deletes (marks as Cancelled) a COC record.
+ * This is used for pending records that haven't been certificated yet.
+ *
+ * @param {string} recordId - The record ID to delete
+ * @param {string} reason - Reason for deletion
+ * @returns {Object} Result object
+ */
+function apiDeleteCOCRecord(recordId, reason) {
+  if (!recordId) throw new Error("Record ID is required.");
+  if (!reason) throw new Error("Reason for deletion is required.");
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    const db = SpreadsheetApp.openById(DATABASE_ID);
+    const recordsSheet = db.getSheetByName('COC_Records');
+    const data = recordsSheet.getDataRange().getValues();
+
+    const currentUser = getCurrentUserEmail();
+    const now = new Date();
+
+    // Find the record
+    let rowIndex = -1;
+    let recordData = null;
+
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][RECORD_COLS.RECORD_ID] === recordId) {
+        rowIndex = i;
+        recordData = data[i];
+        break;
+      }
+    }
+
+    if (rowIndex === -1) {
+      throw new Error("Record not found.");
+    }
+
+    // Check if record is already certificated
+    const certificateId = recordData[RECORD_COLS.CERTIFICATE_ID];
+    if (certificateId) {
+      throw new Error("Cannot delete a record that has already been certificated. Please contact administrator if you need to cancel a certificated record.");
+    }
+
+    // Check current status
+    const currentStatus = recordData[RECORD_COLS.STATUS];
+    if (currentStatus === STATUS_CANCELLED) {
+      throw new Error("This record has already been cancelled.");
+    }
+
+    // Update the record to mark it as Cancelled
+    // We don't actually delete it to maintain audit trail
+    const row = rowIndex + 1; // Convert to 1-based index
+    recordsSheet.getRange(row, RECORD_COLS.STATUS + 1).setValue(STATUS_CANCELLED);
+    recordsSheet.getRange(row, RECORD_COLS.LAST_MODIFIED + 1).setValue(now);
+    recordsSheet.getRange(row, RECORD_COLS.MODIFIED_BY + 1).setValue(currentUser);
+
+    // Add a note/remark in a comments column if available, or we can add it to the APPROVED_BY column as a workaround
+    // Since we don't have a dedicated "Remarks" column in COC_Records, we'll store it in the ledger
+
+    // Create a ledger entry for this cancellation
+    const ledgerSheet = db.getSheetByName('COC_Ledger');
+    if (ledgerSheet) {
+      const employeeId = recordData[RECORD_COLS.EMPLOYEE_ID];
+      const employeeName = recordData[RECORD_COLS.EMPLOYEE_NAME];
+      const cocEarned = parseFloat(recordData[RECORD_COLS.COC_EARNED] || 0);
+      const monthYear = recordData[RECORD_COLS.MONTH_YEAR];
+
+      const ledgerId = generateUniqueId("LDG-");
+      const ledgerRow = new Array(15).fill('');
+      ledgerRow[LEDGER_COLS.LEDGER_ID] = ledgerId;
+      ledgerRow[LEDGER_COLS.EMPLOYEE_ID] = employeeId;
+      ledgerRow[LEDGER_COLS.EMPLOYEE_NAME] = employeeName;
+      ledgerRow[LEDGER_COLS.TRANSACTION_DATE] = now;
+      ledgerRow[LEDGER_COLS.TRANSACTION_TYPE] = 'COC Cancelled';
+      ledgerRow[LEDGER_COLS.REFERENCE_ID] = recordId;
+      ledgerRow[LEDGER_COLS.BALANCE_BEFORE] = 0; // Since it was pending, it never affected balance
+      ledgerRow[LEDGER_COLS.COC_EARNED] = 0;
+      ledgerRow[LEDGER_COLS.CTO_USED] = 0;
+      ledgerRow[LEDGER_COLS.COC_EXPIRED] = 0;
+      ledgerRow[LEDGER_COLS.BALANCE_ADJUSTMENT] = 0;
+      ledgerRow[LEDGER_COLS.BALANCE_AFTER] = 0;
+      ledgerRow[LEDGER_COLS.MONTH_YEAR_EARNED] = monthYear;
+      ledgerRow[LEDGER_COLS.PROCESSED_BY] = currentUser;
+      ledgerRow[14] = `Cancelled pending COC record (${cocEarned.toFixed(2)} hrs). Reason: ${reason}`; // Remarks column
+
+      ledgerSheet.getRange(ledgerSheet.getLastRow() + 1, 1, 1, ledgerRow.length).setValues([ledgerRow]);
+    }
+
+    Logger.log(`COC Record ${recordId} cancelled by ${currentUser}. Reason: ${reason}`);
+
+    return {
+      success: true,
+      message: "Record cancelled successfully."
+    };
+
+  } catch (e) {
+    Logger.log(`Error in apiDeleteCOCRecord: ${e}`);
+    throw new Error(`Failed to delete record: ${e.message}`);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * API Wrapper for cancelling a COC record.
+ */
+function apiCancelCOC(recordId, remarks) {
+  // This function is a wrapper. The core logic is assumed to be
+  // in another file (e.g., COC.gs or Logic.gs).
+  return cancelCOCRecord(recordId, remarks);
+}
+
+/**
+ * Generates a single monthly certificate for all uncertificated records.
+ * This is the new function called by the "Generate" button.
+ */
+function apiGenerateMonthlyCOCCertificate(employeeId, month, year, issueDateString) {
+  if (!employeeId || !month || !year || !issueDateString) {
+    throw new Error("Employee ID, month, year, and issue date are required.");
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    const db = SpreadsheetApp.openById(DATABASE_ID);
+    const recordsSheet = db.getSheetByName('COC_Records');
+    const recordsData = recordsSheet.getDataRange().getValues();
+    const certSheet = db.getSheetByName('COC_Certificates');
+    const detailSheet = db.getSheetByName('COC_Balance_Detail');
+    const ledgerSheet = db.getSheetByName('COC_Ledger');
+
+    const settings = getSheetDataNoHeader('Settings');
+    const validityMonths = parseInt(settings.find(r => r[0] === 'COC_VALIDITY_MONTHS')[1] || 12);
+
+    const currentUser = getCurrentUserEmail();
+    const now = new Date();
+    const monthYear = `${year}-${String(month).padStart(2, '0')}`;
+
+    // 1. Get Employee Details
+    const empDetails = getEmployeeDetails(employeeId);
+    if (!empDetails) throw new Error("Employee not found.");
+
+    // 2. Find records to certify
+    const recordsToCertifyIndices = []; // Store row indices (1-based)
+    const recordsToCertifyData = [];
+
+    // Start from row 2 (index 1) to skip header
+    for (let i = 1; i < recordsData.length; i++) {
+      const row = recordsData[i];
+      if (row[RECORD_COLS.EMPLOYEE_ID] === employeeId &&
+        row[RECORD_COLS.MONTH_YEAR] === monthYear &&
+        (row[RECORD_COLS.STATUS] === STATUS_PENDING || row[RECORD_COLS.CERTIFICATE_ID] === '')) {
+        recordsToCertifyIndices.push(i + 1); // Store 1-based index
+        recordsToCertifyData.push(row);
+      }
+    }
+
+    if (recordsToCertifyData.length === 0) {
+      throw new Error("No pending COC records found for this employee and month to certify.");
+    }
+
+    // 3. Calculate totals and dates
+    const totalNewCOC = recordsToCertifyData.reduce((sum, r) => sum + parseFloat(r[RECORD_COLS.COC_EARNED] || 0), 0);
+    const numRecords = recordsToCertifyData.length;
+
+    const issueDate = new Date(issueDateString);
+    const expirationDate = new Date(issueDate);
+    expirationDate.setFullYear(expirationDate.getFullYear() + validityMonths);
+    expirationDate.setDate(expirationDate.getDate() - 1);
+
+    const certificateId = generateUniqueId("CERT-");
+
+    // 4. Generate the Google Doc
+    const doc = generateCertificateDocument(certificateId, empDetails, recordsToCertifyData, issueDate, expirationDate);
+
+    // 5. Create new rows for other sheets
+    const newCertRow = new Array(13).fill('');
+    newCertRow[CERT_COLS.CERTIFICATE_ID] = certificateId;
+    newCertRow[CERT_COLS.EMPLOYEE_ID] = employeeId;
+    newCertRow[CERT_COLS.EMPLOYEE_NAME] = empDetails.fullName;
+    newCertRow[CERT_COLS.MONTH_YEAR] = monthYear;
+    newCertRow[CERT_COLS.TOTAL_COC_EARNED] = totalNewCOC;
+    newCertRow[CERT_COLS.NUMBER_OF_RECORDS] = numRecords;
+    newCertRow[CERT_COLS.ISSUE_DATE] = issueDate;
+    newCertRow[CERT_COLS.EXPIRATION_DATE] = expirationDate;
+    newCertRow[CERT_COLS.CERTIFICATE_URL] = doc.url;
+    newCertRow[CERT_COLS.PDF_URL] = doc.pdfUrl;
+    newCertRow[CERT_COLS.STATUS] = STATUS_ACTIVE;
+    newCertRow[CERT_COLS.CREATED_DATE] = now;
+    newCertRow[CERT_COLS.CREATED_BY] = currentUser;
+    certSheet.appendRow(newCertRow);
+
+    const newDetailRows = [];
+    recordsToCertifyData.forEach(record => {
+      const newDetailRow = new Array(19).fill('');
+      newDetailRow[DETAIL_COLS.ENTRY_ID] = generateUniqueId("COCD-");
+      newDetailRow[DETAIL_COLS.EMPLOYEE_ID] = employeeId;
+      newDetailRow[DETAIL_COLS.EMPLOYEE_NAME] = empDetails.fullName;
+      newDetailRow[DETAIL_COLS.CERTIFICATE_ID] = certificateId;
+      newDetailRow[DETAIL_COLS.RECORD_ID] = record[RECORD_COLS.RECORD_ID];
+      newDetailRow[DETAIL_COLS.MONTH_YEAR] = monthYear;
+      newDetailRow[DETAIL_COLS.DATE_EARNED] = record[RECORD_COLS.DATE_RENDERED];
+      newDetailRow[DETAIL_COLS.DAY_TYPE] = record[RECORD_COLS.DAY_TYPE];
+      newDetailRow[DETAIL_COLS.HOURS_EARNED] = record[RECORD_COLS.COC_EARNED];
+      newDetailRow[DETAIL_COLS.HOURS_USED] = 0;
+      newDetailRow[DETAIL_COLS.HOURS_REMAINING] = record[RECORD_COLS.COC_EARNED];
+      newDetailRow[DETAIL_COLS.CERTIFICATE_ISSUE_DATE] = issueDate;
+      newDetailRow[DETAIL_COLS.EXPIRATION_DATE] = expirationDate;
+      newDetailRow[DETAIL_COLS.STATUS] = STATUS_ACTIVE;
+      newDetailRow[DETAIL_COLS.DATE_CREATED] = record[RECORD_COLS.DATE_RECORDED];
+      newDetailRow[DETAIL_COLS.CREATED_BY] = record[RECORD_COLS.CREATED_BY];
+      newDetailRow[DETAIL_COLS.LAST_UPDATED] = now;
+      newDetailRow[DETAIL_COLS.NOTES] = `Part of ${monthYear} certificate. Expires ${Utilities.formatDate(expirationDate, "GMT+8", "yyyy-MM-dd")}.`;
+
+      newDetailRows.push(newDetailRow);
+    });
+    if (newDetailRows.length > 0) {
+      detailSheet.getRange(detailSheet.getLastRow() + 1, 1, newDetailRows.length, newDetailRows[0].length).setValues(newDetailRows);
+    }
+
+    // 6. Create Ledger Entry
+    const currentBalance = apiGetBalance(employeeId);
+    const newBalance = currentBalance + totalNewCOC;
+    const newLedgerRow = new Array(19).fill('');
+    newLedgerRow[LEDGER_COLS.LEDGER_ID] = generateUniqueId("LED-");
+    newLedgerRow[LEDGER_COLS.EMPLOYEE_ID] = employeeId;
+    newLedgerRow[LEDGER_COLS.EMPLOYEE_NAME] = empDetails.fullName;
+    newLedgerRow[LEDGER_COLS.TRANSACTION_DATE] = issueDate;
+    newLedgerRow[LEDGER_COLS.TRANSACTION_TYPE] = TR_TYPE_EARNED;
+    newLedgerRow[LEDGER_COLS.REFERENCE_ID] = certificateId;
+    newLedgerRow[LEDGER_COLS.BALANCE_BEFORE] = currentBalance;
+    newLedgerRow[LEDGER_COLS.COC_EARNED] = totalNewCOC;
+    newLedgerRow[LEDGER_COLS.CTO_USED] = 0;
+    newLedgerRow[LEDGER_COLS.COC_EXPIRED] = 0;
+    newLedgerRow[LEDGER_COLS.BALANCE_ADJUSTMENT] = 0;
+    newLedgerRow[LEDGER_COLS.BALANCE_AFTER] = newBalance;
+    newLedgerRow[LEDGER_COLS.MONTH_YEAR_EARNED] = monthYear;
+    newLedgerRow[LEDGER_COLS.EXPIRATION_DATE] = expirationDate;
+    newLedgerRow[LEDGER_COLS.PROCESSED_BY] = currentUser;
+    newLedgerRow[LEDGER_COLS.PROCESSED_DATE] = now;
+    newLedgerRow[LEDGER_COLS.REMARKS] = `Certificate ${certificateId} issued for ${totalNewCOC} hrs.`;
+    ledgerSheet.appendRow(newLedgerRow);
+
+    // 7. Update original COC_Records
+    recordsToCertifyIndices.forEach(rowIndex => {
+      recordsSheet.getRange(rowIndex, RECORD_COLS.CERTIFICATE_ID + 1).setValue(certificateId);
+      recordsSheet.getRange(rowIndex, RECORD_COLS.EXPIRATION_DATE + 1).setValue(expirationDate);
+      recordsSheet.getRange(rowIndex, RECORD_COLS.STATUS + 1).setValue(STATUS_ACTIVE);
+      recordsSheet.getRange(rowIndex, RECORD_COLS.LAST_MODIFIED + 1).setValue(now);
+      recordsSheet.getRange(rowIndex, RECORD_COLS.MODIFIED_BY + 1).setValue(currentUser);
+    });
+
+    // 8. Return success
+    return {
+      certificateId: certificateId,
+      numRecords: numRecords,
+      totalHours: totalNewCOC
+    };
+
+  } catch (e) {
+    Logger.log(`Error in apiGenerateMonthlyCOCCertificate: ${e}\nStack: ${e.stack}`);
+    throw new Error(`Failed to generate certificate: ${e.message}`);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * @deprecated
+ * This appears to be an old or single-record certificate function.
+ * It is wrapped by apiGenerateMonthlyCOCCertificate now.
+ */
+function apiGenerateCOCCertificate(recordId) {
+  // This function is a wrapper. The core logic is assumed to be
+  // in another file (e.g., Certificate.gs or Logic.gs).
+  return generateCOCCertificate(recordId);
+}
+
+/**
+ * Gets the monthly certificate information for display.
+ * Returns null if no certificate exists for the month.
+ *
+ * @param {string} employeeId - The employee ID
+ * @param {number} month - Month (1-12)
+ * @param {number} year - Year (e.g., 2025)
+ * @returns {Object|null} Certificate object or null
+ */
+function apiGetMonthlyCertificate(employeeId, month, year) {
+  if (!employeeId || !month || !year) return null;
+
+  try {
+    const monthYear = `${year}-${String(month).padStart(2, '0')}`;
+    const certsData = getSheetDataNoHeader('COC_Certificates');
+
+    // Find certificate for this employee and month
+    const cert = certsData.find(c =>
+      c[CERT_COLS.EMPLOYEE_ID] === employeeId &&
+      c[CERT_COLS.MONTH_YEAR] === monthYear
+    );
+
+    if (!cert) return null;
+
+    return {
+      certificateId: cert[CERT_COLS.CERTIFICATE_ID],
+      totalCOC: parseFloat(cert[CERT_COLS.TOTAL_COC_EARNED] || 0),
+      numRecords: cert[CERT_COLS.NUMBER_OF_RECORDS],
+      issueDate: cert[CERT_COLS.ISSUE_DATE] ?
+        Utilities.formatDate(new Date(cert[CERT_COLS.ISSUE_DATE]), "GMT+8", "MMM dd, yyyy") : null,
+      expirationDate: cert[CERT_COLS.EXPIRATION_DATE] ?
+        Utilities.formatDate(new Date(cert[CERT_COLS.EXPIRATION_DATE]), "GMT+8", "MMM dd, yyyy") : null,
+      certificateUrl: cert[CERT_COLS.CERTIFICATE_URL],
+      pdfUrl: cert[CERT_COLS.PDF_URL],
+      status: cert[CERT_COLS.STATUS]
+    };
+
+  } catch (e) {
+    Logger.log(`Error in apiGetMonthlyCertificate: ${e}`);
+    return null;
+  }
+}
