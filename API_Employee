@@ -1,0 +1,549 @@
+// -----------------------------------------------------------------------------
+// API_Employee.gs
+//
+// Contains all API functions related to managing and retrieving employee data.
+// -----------------------------------------------------------------------------
+
+/**
+ * API: Add employee with FIFO tracking
+ * This replaces apiAddEmployee
+ */
+function apiAddEmployee(data) {
+  // This function is a wrapper. The core logic is assumed to be
+  // in another file (e.g., Employee.gs or Logic.gs).
+  return addEmployeeWithFIFO(data);
+}
+
+/**
+ * API: Get employee by ID
+ * Uses updated getEmployeeById which works with 8-column structure
+ */
+function apiGetEmployee(employeeId) {
+  try {
+    // This function is a wrapper. The core logic is assumed to be
+    // in another file (e.g., Employee.gs or Logic.gs).
+    return getEmployeeById(employeeId);
+  } catch (error) {
+    Logger.log('ERROR in apiGetEmployee: ' + error.message);
+    throw error;
+  }
+}
+
+/**
+ * API: Update employee
+ * Uses updated updateEmployee which works with 8-column structure
+ */
+function apiUpdateEmployee(employeeId, data) {
+  try {
+    // This function is a wrapper. The core logic is assumed to be
+    // in another file (e.g., Employee.gs or Logic.gs).
+    updateEmployee(employeeId, data);
+    return {
+      success: true,
+      message: 'Employee updated successfully'
+    };
+  } catch (error) {
+    Logger.log('ERROR in apiUpdateEmployee: ' + error.message);
+    return {
+      success: false,
+      message: error.message
+    };
+  }
+}
+
+/**
+ * API wrapper for listing employees. Accepts an optional boolean flag to
+ * include inactive employees. Without parameters the list defaults to
+ * active employees only. This change allows HTML clients to request
+ * either view while remaining backwards compatible with existing calls.
+ *
+ * @param {boolean} includeInactive Whether to include inactive employees.
+ * @return {Array<Object>} List of employee objects.
+ */
+function apiListEmployees(includeInactive) {
+  try {
+    // This function is a wrapper. The core logic is assumed to be
+    // in another file (e.g., Employee.gs or Logic.gs).
+    return listEmployees(Boolean(includeInactive));
+  } catch (error) {
+    Logger.log('ERROR in apiListEmployees: ' + error.message);
+    throw error;
+  }
+}
+
+/**
+ * API: List employees for dropdown (simplified)
+ * @return {Array<Object>} Array of employee objects with id and fullName
+ */
+function apiListEmployeesForDropdown() {
+  try {
+    const db = getDatabase();
+    const empSheet = db.getSheetByName('Employees');
+
+    if (!empSheet || empSheet.getLastRow() < 2) {
+      return [];
+    }
+
+    const data = empSheet.getDataRange().getValues();
+    const results = [];
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const status = row[6]; // Assuming status is in column G
+
+      // Only include active employees
+      if (status !== 'Active') continue;
+
+      results.push({
+        id: row[0], // Employee ID
+        fullName: row[1] // Full Name
+      });
+    }
+
+    // Sort by name
+    results.sort((a, b) => a.fullName.localeCompare(b.fullName));
+
+    return results;
+
+  } catch (error) {
+    Logger.log('ERROR in apiListEmployeesForDropdown: ' + error.message + '\nStack: ' + error.stack);
+    throw new Error('Failed to load employees: ' + error.message);
+  }
+}
+
+
+/**
+ * Gets the total COC earned for the specified month.
+ * @param {string} employeeId The ID of the employee.
+ * @param {number} month The month (1-12) from the dropdown.
+ * @param {number} year The year (e.g., 2025) from the dropdown.
+ * @returns {object} An object containing { currentMonthTotal, monthlyRemaining, etc. }.
+ */
+function apiGetEmployeeCOCStats(employeeId, month, year) {
+  const db = getDatabase(); // Assuming you have this function
+  const detailSheet = db.getSheetByName('COC_Balance_Detail');
+  const TIME_ZONE = getScriptTimeZone(); // Assuming you have this function
+
+  // Get current balance (This is the TOTAL balance, which is fine)
+  const currentBalance = getCurrentCOCBalanceFromDetail(employeeId); // Assuming you have this function
+
+  // Get current month's COC total
+  const now = new Date(); // We use this *only* as a fallback
+
+  // --- START OF FIX ---
+
+  // 1. Use the passed-in month and year. If they are missing, use the current month/year.
+  const targetMonth = month || (now.getMonth() + 1);
+  const targetYear = year || now.getFullYear();
+
+  // 2. Create the target Month-Year string in YYYY-MM format
+  //    This format MUST match your 'COC_Balance_Detail' sheet's 'Month Year' column (Column F)
+  //    Based on your CSV, it looks like it's "YYYY-MM" (e.g., "2025-10").
+  const targetMonthYear = `${targetYear}-${String(targetMonth).padStart(2, '0')}`;
+
+  // --- END OF FIX ---
+
+  let currentMonthTotal = 0;
+
+  if (detailSheet && detailSheet.getLastRow() > 1) {
+    const data = detailSheet.getDataRange().getValues();
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const empId = row[1]; // Employee ID (Column B)
+
+      // --- START OF FIX 2 ---
+      // We read the 'Month Year' column directly. It's much faster and more reliable.
+      // This assumes 'Month Year' is in Column F (index 5)
+      const rowMonthYear = row[5];
+      const hoursEarned = parseFloat(row[8]) || 0; // 'Hours Earned' (Column I)
+
+      // 3. Compare against the targetMonthYear string
+      if (empId === employeeId && rowMonthYear === targetMonthYear) {
+        currentMonthTotal += hoursEarned;
+      }
+      // --- END OF FIX 2 ---
+    }
+  }
+
+  // This return object matches your original function
+  return {
+    employeeId: employeeId,
+    currentBalance: currentBalance,
+    balanceLimit: 120,
+    balanceRemaining: 120 - currentBalance,
+    currentMonthTotal: currentMonthTotal, // This will now be for the SELECTED month
+    monthlyLimit: 40,
+    monthlyRemaining: 40 - currentMonthTotal,
+    canAddThisMonth: 40 - currentMonthTotal,
+    canAddTotal: Math.min(40 - currentMonthTotal, 120 - currentBalance)
+  };
+}
+
+/**
+ * FIXED: Get all CTO applications for a specific employee
+ * Enhanced with robust date handling for inconsistent formats
+ *
+ * @param {string} empId - Employee ID (e.g., "EMP008")
+ * @returns {Array} Array of CTO application objects
+ */
+function apiGetEmployeeCTOApplications(employeeId) {
+  try {
+    // Get the original result (you already have this function somewhere)
+    const db = getDatabase();
+    const ctoSheet = db.getSheetByName('CTO_Applications');
+
+    if (!ctoSheet || ctoSheet.getLastRow() < 2) {
+      return [];
+    }
+
+    const data = ctoSheet.getDataRange().getValues();
+    const applications = [];
+
+    // Normalize search ID
+    const searchId = String(employeeId).trim();
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const rowEmpId = String(row[1] || '').trim();
+
+      if (rowEmpId === searchId) {
+        applications.push({
+          appId: String(row[0] || ''),
+          employeeId: String(row[1] || ''),
+          employeeName: String(row[2] || ''),
+          office: String(row[3] || ''),
+          hours: parseFloat(row[4]) || 0,
+          startDate: String(row[5] || ''),
+          endDate: String(row[6] || ''),
+          appliedDate: String(row[7] || ''),
+          status: String(row[10] || ''),
+          remarks: String(row[11] || '')
+        });
+      }
+    }
+
+    return applications;
+
+  } catch (error) {
+    Logger.log('ERROR in apiGetEmployeeCTOApplications: ' + error.message);
+    return [];
+  }
+}
+
+/**
+ * ============================================================================
+ * API: Get Employees with Expiring COC (within 30 days)
+ * ============================================================================
+ * Retrieves a list of employees who have active COC entries expiring within
+ * the next 30 days, along with the total hours expiring for each employee
+ * and the date of the earliest expiration.
+ *
+ * @return {Array<Object>} An array of objects: { employeeId, employeeName, totalHoursExpiring, earliestExpiryDate }
+ */
+function apiGetEmployeesWithExpiringCOC() {
+  try {
+    const db = getDatabase();
+    const detailSheet = ensureCOCBalanceDetailSheet(); // Ensure the sheet exists
+    const TIME_ZONE = getScriptTimeZone();
+
+    if (!detailSheet || detailSheet.getLastRow() < 2) {
+      Logger.log('COC_Balance_Detail sheet is empty or not found.');
+      return [];
+    }
+
+    const data = detailSheet.getDataRange().getValues();
+    const expiringMap = {}; // Use a map to group by employeeId
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Start of today
+    const thirtyDaysFromNow = new Date(today);
+    thirtyDaysFromNow.setDate(today.getDate() + 30); // End of the 30-day window
+
+    Logger.log(`Checking for expirations between ${today.toISOString()} and ${thirtyDaysFromNow.toISOString()}`);
+
+    // Iterate through detail entries (skip header row)
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const employeeId = String(row[DETAIL_COLS.EMPLOYEE_ID] || '').trim();
+      const employeeName = String(row[DETAIL_COLS.EMPLOYEE_NAME] || '').trim();
+      const hoursRemaining = parseFloat(row[DETAIL_COLS.HOURS_REMAINING]) || 0;
+      const expirationDateVal = row[DETAIL_COLS.EXPIRATION_DATE];
+      const status = String(row[DETAIL_COLS.STATUS] || '').trim();
+
+      // Skip if no employee ID, status is not Active, or no hours remaining
+      if (!employeeId || status !== 'Active' || hoursRemaining <= 0) {
+        continue;
+      }
+
+      // --- Robust Date Parsing for Expiration Date ---
+      let expirationDate = null;
+      if (expirationDateVal instanceof Date && !isNaN(expirationDateVal.getTime())) {
+        expirationDate = new Date(expirationDateVal); // Clone to avoid modifying original
+      } else if (expirationDateVal) {
+        try {
+          const parsed = new Date(expirationDateVal);
+          if (!isNaN(parsed.getTime())) {
+            expirationDate = parsed;
+          } else {
+            Logger.log(`Skipping row ${i + 1} due to invalid expiration date format: ${expirationDateVal}`);
+            continue; // Skip if date is invalid
+          }
+        } catch (e) {
+          Logger.log(`Error parsing expiration date at row ${i + 1}: ${expirationDateVal}`);
+          continue; // Skip on parsing error
+        }
+      } else {
+        Logger.log(`Skipping row ${i + 1} due to missing expiration date.`);
+        continue; // Skip if no expiration date
+      }
+      expirationDate.setHours(0, 0, 0, 0); // Use start of the expiration day for comparison
+      // --- End Date Parsing ---
+
+
+      // Check if the expiration date is within the next 30 days (inclusive of today)
+      if (expirationDate >= today && expirationDate <= thirtyDaysFromNow) {
+        // If employee not yet in map, initialize
+        if (!expiringMap[employeeId]) {
+          expiringMap[employeeId] = {
+            employeeId: employeeId,
+            employeeName: employeeName,
+            totalHoursExpiring: 0,
+            earliestExpiryDate: expirationDate // Initialize with the first one found
+          };
+        }
+
+        // Add hours to the total for this employee
+        expiringMap[employeeId].totalHoursExpiring += hoursRemaining;
+
+        // Update the earliest expiration date if this one is earlier
+        if (expirationDate < expiringMap[employeeId].earliestExpiryDate) {
+          expiringMap[employeeId].earliestExpiryDate = expirationDate;
+        }
+        Logger.log(`Found expiring entry for ${employeeId}: ${hoursRemaining} hrs on ${Utilities.formatDate(expirationDate, TIME_ZONE, 'yyyy-MM-dd')}`);
+      }
+    }
+
+    // Convert map to array
+    const expiringList = Object.values(expiringMap);
+
+    // Sort the list (e.g., by earliest expiry date, then by name)
+    expiringList.sort((a, b) => {
+      if (a.earliestExpiryDate.getTime() !== b.earliestExpiryDate.getTime()) {
+        return a.earliestExpiryDate - b.earliestExpiryDate; // Sort by date first
+      }
+      return a.employeeName.localeCompare(b.employeeName); // Then by name
+    });
+
+    // Format the date string for the final output
+    const formattedList = expiringList.map(item => ({
+      ...item,
+      earliestExpiryDate: Utilities.formatDate(item.earliestExpiryDate, TIME_ZONE, 'yyyy-MM-dd') // Format date as YYYY-MM-DD string
+    }));
+
+
+    Logger.log(`Found ${formattedList.length} employees with COC expiring within 30 days.`);
+    return formattedList; // Return the array
+
+  } catch (error) {
+    Logger.log('ERROR in apiGetEmployeesWithExpiringCOC: ' + error.message + '\nStack: ' + error.stack);
+    return []; // Return empty array on error
+  }
+}
+
+/**
+ * ✅ v2.2: Get HISTORICAL COC records only
+ *
+ * Filters to show only records from Employee Manager (HIST- prefix)
+ * Excludes records from "Record COC Earned" (REC- prefix)
+ *
+ * @param {string} employeeId The employee ID
+ * @return {Array<Object>} Array of historical COC records only
+ */
+function apiGetEmployeeCocHistory(employeeId) {
+  try {
+    if (!employeeId) {
+      throw new Error('Employee ID is required');
+    }
+
+    const db = getDatabase();
+    const certSheet = db.getSheetByName('COC_Certificates');
+    const detailSheet = db.getSheetByName('COC_Balance_Detail');
+
+    if (!certSheet || !detailSheet) {
+      Logger.log('Required sheets not found');
+      return [];
+    }
+
+    // ✅ v2.2: Check if employee has real COC records (for lock status)
+    const isLocked = apiCheckEmployeeHasRealCOC(employeeId);
+
+    const certData = certSheet.getDataRange().getValues();
+    const detailData = detailSheet.getDataRange().getValues();
+    const results = [];
+    const TIME_ZONE = getScriptTimeZone();
+
+    // Process each certificate for this employee
+    for (let i = 1; i < certData.length; i++) {
+      const row = certData[i];
+
+      if (row[CERT_COLS.EMPLOYEE_ID] !== employeeId) {
+        continue;
+      }
+
+      const certId = row[CERT_COLS.CERTIFICATE_ID];
+
+      // ✅ v2.2: Get record ID to check source
+      let recordId = '';
+      for (let j = 1; j < detailData.length; j++) {
+        if (detailData[j][DETAIL_COLS.CERTIFICATE_ID] === certId) {
+          recordId = detailData[j][DETAIL_COLS.RECORD_ID];
+          break;
+        }
+      }
+
+      // ✅ v2.2: FILTER - Only show HISTORICAL records (HIST- prefix)
+      if (!recordId || !String(recordId).startsWith('HIST-')) {
+        continue; // Skip real COC records (REC-, CERT-, etc.)
+      }
+
+      const monthYearRaw = row[CERT_COLS.MONTH_YEAR];
+      const issueDate = row[CERT_COLS.ISSUE_DATE];
+      const expiryDate = row[CERT_COLS.EXPIRATION_DATE];
+      const totalEarned = parseFloat(row[CERT_COLS.TOTAL_COC_EARNED]) || 0;
+
+      // Handle both date formats (YYYY-MM or MM-YYYY)
+      let year, month;
+      if (!monthYearRaw) continue;
+
+      const monthYearStr = String(monthYearRaw);
+
+      if (monthYearStr.includes('-')) {
+        const parts = monthYearStr.split('-');
+        if (parts.length === 2) {
+          if (parts[0].length === 4) {
+            year = parts[0];
+            month = parts[1];
+          } else {
+            month = parts[0];
+            year = parts[1];
+          }
+        }
+      } else {
+        try {
+          const dateObj = new Date(monthYearRaw);
+          year = dateObj.getFullYear().toString();
+          month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        } catch (e) {
+          Logger.log('Could not parse monthYear: ' + monthYearRaw);
+          continue;
+        }
+      }
+
+      // Calculate total USED from detail sheet
+      let totalUsed = 0;
+      for (let j = 1; j < detailData.length; j++) {
+        if (detailData[j][DETAIL_COLS.CERTIFICATE_ID] === certId) {
+          totalUsed += parseFloat(detailData[j][DETAIL_COLS.HOURS_USED]) || 0;
+        }
+      }
+
+      const remaining = totalEarned - totalUsed;
+
+      const monthNum = parseInt(month);
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      ];
+      const monthName = monthNames[monthNum - 1] || month;
+
+      // ✅ v2.2: Format dates as MM/DD/YYYY
+      const issueDateFormatted = formatDateMMDDYYYY(issueDate);
+      const expiryDateFormatted = formatDateMMDDYYYY(expiryDate);
+
+      results.push({
+        certificateId: certId,
+        recordId: recordId,
+        month: monthName,
+        monthNum: monthNum,
+        year: year,
+        earned: totalEarned.toFixed(2),
+        used: totalUsed.toFixed(2),
+        remaining: remaining.toFixed(2),
+        issueDate: issueDateFormatted,
+        validUntil: expiryDateFormatted,
+        isLocked: isLocked, // ✅ v2.2: Lock status
+        source: 'HISTORICAL' // ✅ v2.2: Always historical in this view
+      });
+    }
+
+    // Sort by year and month (newest first)
+    results.sort((a, b) => {
+      const yearDiff = parseInt(b.year) - parseInt(a.year);
+      if (yearDiff !== 0) return yearDiff;
+      return b.monthNum - a.monthNum;
+    });
+
+    Logger.log('Retrieved ' + results.length + ' HISTORICAL COC records for ' + employeeId);
+    return results;
+
+  } catch (error) {
+    Logger.log('ERROR in apiGetEmployeeCocHistory: ' + error.message);
+    Logger.log('Stack: ' + error.stack);
+    throw new Error('Failed to get COC history: ' + error.message);
+  }
+}
+
+
+/**
+ * ✅ v2.2: NEW - Check if employee has real COC records
+ *
+ * Used to determine if historical records should be locked
+ *
+ * @param {string} employeeId The employee ID
+ * @return {boolean} True if employee has real COC records
+ */
+function apiCheckEmployeeHasRealCOC(employeeId) {
+  try {
+    const db = getDatabase();
+    const recordsSheet = db.getSheetByName('COC_Records');
+
+    if (!recordsSheet) {
+      return false; // No COC_Records sheet = no real records
+    }
+
+    const data = recordsSheet.getDataRange().getValues();
+
+    // Check if employee has any records (skip header row)
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][RECORD_COLS.EMPLOYEE_ID] === employeeId) {
+        return true; // Found at least one real COC record
+      }
+    }
+
+    return false;
+
+  } catch (error) {
+    Logger.log('ERROR in apiCheckEmployeeHasRealCOC: ' + error.message);
+    return false; // Default to unlocked on error
+  }
+}
+
+
+/**
+ * ✅ v2.2: Helper function to format date as MM/DD/YYYY
+ */
+function formatDateMMDDYYYY(dateValue) {
+  if (!dateValue) return '';
+
+  try {
+    const date = new Date(dateValue);
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const year = date.getFullYear();
+
+    return month + '/' + day + '/' + year;
+  } catch (e) {
+    Logger.log('Error formatting date: ' + e.message);
+    return String(dateValue);
+  }
+}
