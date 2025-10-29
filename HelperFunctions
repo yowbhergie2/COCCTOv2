@@ -1,0 +1,440 @@
+// -----------------------------------------------------------------------------
+// HelperFunctions.gs
+// -----------------------------------------------------------------------------
+
+/**
+ * Returns the script's time zone. Must be called inside a function.
+ */
+function getScriptTimeZone() {
+  return Session.getScriptTimeZone();
+}
+
+
+/**
+ * Formats a JavaScript Date into a human friendly string (e.g. “May 24, 2025”).
+ * All user‑visible dates should pass through this helper to enforce a
+ * consistent display across the application. Internally we leverage
+ * `Utilities.formatDate` because it allows specifying both the time zone and
+ * the desired output pattern. See the official documentation for examples【640255559486048†L203-L214】.
+ *
+ * @param {Date} date The date to format.
+ * @return {string} The formatted date.
+ */
+function formatDate(date) {
+  const TIME_ZONE = getScriptTimeZone();
+  return Utilities.formatDate(new Date(date), TIME_ZONE, 'MMMM dd, yyyy');
+}
+
+
+/**
+ * Formats a Date object into "Month Day, Year" (e.g., "October 27, 2025").
+ * @param {Date} date The date object.
+ * @returns {string} The formatted date string.
+ */
+function formatLongDate(date) {
+  return Utilities.formatDate(date, "GMT+8", "MMMM dd, yyyy");
+}
+
+
+/**
+ * Formats an array of dates into a string like "Month day1, day2, and day3, Year".
+ * @param {Array<Date>} dateArray An array of Date objects.
+ * @returns {string} The formatted inclusive dates string.
+ */
+function formatInclusiveDates(dateArray) {
+  if (!dateArray || dateArray.length === 0) return "";
+
+  // Sort dates
+  dateArray.sort((a, b) => a.getTime() - b.getTime());
+
+  // Get unique days
+  const days = [...new Set(dateArray.map(d => d.getDate()))];
+  
+  const month = Utilities.formatDate(dateArray[0], "GMT+8", "MMMM");
+  const year = Utilities.formatDate(dateArray[0], "GMT+8", "yyyy");
+
+  let dayString = "";
+  if (days.length === 1) {
+    dayString = days[0];
+  } else if (days.length === 2) {
+    dayString = `${days[0]} and ${days[1]}`;
+  } else {
+    dayString = `${days.slice(0, -1).join(", ")}, and ${days[days.length - 1]}`;
+  }
+
+  return `${month} ${dayString}, ${year}`;
+}
+
+
+/**
+ * Gets the current user's email address.
+ *
+ * @return {string} The email address of the current user
+ */
+function getCurrentUserEmail() {
+  return Session.getActiveUser().getEmail();
+}
+
+
+/**
+ * Generates a unique ID with a given prefix.
+ * Uses timestamp and random component for uniqueness.
+ *
+ * @param {string} prefix The prefix for the ID (e.g., "COC-", "CERT-")
+ * @return {string} A unique ID string
+ */
+function generateUniqueId(prefix) {
+  const timestamp = new Date().getTime();
+  const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+  return `${prefix}${timestamp}${random}`;
+}
+
+
+/**
+ * Generates the next sequential employee ID based off the existing entries in
+ * the Employees sheet. IDs are prefaced with “EMP” and padded to three
+ * digits (e.g. EMP001, EMP010, EMP100). When adding new employees the
+ * generated ID will always be unique.
+ *
+ * @return {string} The newly generated employee ID.
+ */
+function generateEmployeeId() {
+  const db = getDatabase();
+  const sheet = db.getSheetByName('Employees');
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 'EMP001';
+  const lastId = sheet.getRange(lastRow, 1).getValue();
+  const num = parseInt(String(lastId).replace('EMP', ''), 10) + 1;
+  return 'EMP' + padNumber(num, 3);
+}
+
+
+/**
+ * Generates unique IDs for COC, CTO and Ledger records. The IDs encode the
+ * current date/time down to seconds to ensure uniqueness. If called more
+ * scenario is extremely unlikely in this use case.
+ */
+function generateRecordId() {
+  const now = new Date();
+  const TIME_ZONE = getScriptTimeZone();
+  return 'COC-' + Utilities.formatDate(now, TIME_ZONE, 'yyyyMMddHHmmssSSS');
+}
+
+
+function generateCTOId() {
+  const now = new Date();
+  const TIME_ZONE = getScriptTimeZone();
+  return 'CTO-' + Utilities.formatDate(now, TIME_ZONE, 'yyyyMMddHHmmssSSS');
+}
+
+
+function generateLedgerId() {
+  const now = new Date();
+  const TIME_ZONE = getScriptTimeZone();
+  return 'LED-' + Utilities.formatDate(now, TIME_ZONE, 'yyyyMMddHHmmssSSS');
+}
+
+
+/**
+ * Generates unique Entry ID for COC_Balance_Detail
+ */
+function generateCOCDetailEntryId() {
+  const now = new Date();
+  const TIME_ZONE = getScriptTimeZone();
+  return 'COCD-' + Utilities.formatDate(now, TIME_ZONE, 'yyyyMMddHHmmssSSS');
+}
+
+
+/**
+ * Generate a unique ledger entry ID
+ * @return {string} Ledger entry ID
+ */
+function generateLedgerEntryId() {
+  const now = new Date();
+  const TIME_ZONE = getScriptTimeZone();
+  return 'LED-' + Utilities.formatDate(now, TIME_ZONE, 'yyyyMMddHHmmssSSS');
+}
+
+
+/** Pads a number with leading zeroes. */
+function padNumber(num, length) {
+  return num.toString().padStart(length, '0');
+}
+
+
+// ============================================================================
+// --- NEW HELPER FUNCTION ---
+// This function contains the logic to determine the day type.
+// It is now called by apiGetDayType and calculateOvertimeForDate.
+// ============================================================================
+/**
+ * Determines the type of day (Weekday, Weekend, Holiday)
+ * @param {Date} date The date to check.
+ * @return {string} The day type.
+ */
+function getDayType(date) {
+  const TIME_ZONE = getScriptTimeZone();
+  const dow = date.getDay(); // 0=Sun
+  let dayType = 'Weekday';
+  if (dow === 0 || dow === 6) {
+    dayType = 'Weekend';
+  }
+
+  // Check holidays sheet for overrides
+  const db = getDatabase();
+  const holidaysSheet = db.getSheetByName('Holidays');
+  if (holidaysSheet) {
+    const holData = holidaysSheet.getDataRange().getValues();
+    const target = Utilities.formatDate(date, TIME_ZONE, 'yyyy-MM-dd');
+    for (let i = 1; i < holData.length; i++) {
+      const holDate = holData[i][0];
+      const holType = holData[i][1];
+      if (holDate && Utilities.formatDate(new Date(holDate), TIME_ZONE, 'yyyy-MM-dd') === target) {
+        if (holType === 'Regular') {
+          dayType = 'Regular Holiday';
+        } else {
+          // Consolidate 'Special Non-Working' and other types
+          dayType = 'Special Non-Working';
+        }
+        break;
+      }
+    }
+  }
+  return dayType;
+}
+
+
+/**
+ * Enhanced getDayType function with support for new holiday types
+ * This replaces the existing getDayType function in the main code
+ * 
+ * @param {Date} date The date to check
+ * @return {Object} Object with dayType, multiplier, and additional info
+ */
+function getDayTypeEnhanced(date) {
+  const TIME_ZONE = getScriptTimeZone();
+  const dow = date.getDay(); // 0=Sun
+  let dayType = 'Weekday';
+  let multiplier = 1.0;
+  let additionalInfo = {};
+  
+  if (dow === 0 || dow === 6) {
+    dayType = 'Weekend';
+    multiplier = 1.5; // Weekends are scheduled days off: 1.5x multiplier
+  }
+
+  // Check holidays sheet for overrides
+  const db = getDatabase();
+  const holidaysSheet = db.getSheetByName('Holidays');
+  if (holidaysSheet) {
+    const holData = holidaysSheet.getDataRange().getValues();
+    const target = Utilities.formatDate(date, TIME_ZONE, 'yyyy-MM-dd');
+
+    for (let i = 1; i < holData.length; i++) {
+      const holDate = holData[i][0];
+      const holType = holData[i][1];
+      const halfdayTime = holData[i][3];
+      const suspensionTime = holData[i][4];
+
+      if (holDate && Utilities.formatDate(new Date(holDate), TIME_ZONE, 'yyyy-MM-dd') === target) {
+        if (holType === 'Regular') {
+          dayType = 'Regular Holiday';
+          multiplier = 1.5; // Holidays are scheduled days off: 1.5x multiplier
+        } else if (holType === 'Special Non-Working') {
+          dayType = 'Special Non-Working';
+          multiplier = 1.5;
+        } else if (holType === 'Local') {
+          dayType = 'Local Holiday';
+          multiplier = 1.5;
+        } else if (holType === 'No Work') {
+          dayType = 'No Work / Typhoon';
+          multiplier = 1.0;
+        } else if (holType === 'Half-day') {
+          dayType = 'Half-day Holiday';
+          multiplier = 1.5;
+          additionalInfo.halfdayTime = halfdayTime;
+        } else if (holType === 'Work Suspended') {
+          dayType = 'Work Suspended';
+          multiplier = 1.0;
+          additionalInfo.suspensionTime = suspensionTime;
+        }
+        break;
+      }
+    }
+  }
+  
+  return {
+    dayType: dayType,
+    multiplier: multiplier,
+    additionalInfo: additionalInfo
+  };
+}
+
+
+/**
+ * Reads the Settings sheet into a plain object. Settings provide system
+ * defaults like maximum COC per month or the validity period. Adding new
+ * settings to the sheet automatically exposes them here without additional
+ * code changes.
+ *
+ * @return {Object<string,string>} A mapping of setting keys to their values.
+ */
+function getSettings() {
+  const db = getDatabase();
+  const sheet = db.getSheetByName('Settings');
+  if (!sheet) return {};
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+  const settings = {};
+  values.forEach(row => {
+    settings[row[0]] = row[1];
+  });
+  return settings;
+}
+
+
+/**
+ * Reads lists from the 'Library' sheet for use in dropdowns.
+ * Assumes Positions are in Column A and Offices are in Column B (starting from row 2).
+ *
+ * @return {Object} An object { positions: [...], offices: [...] }.
+ */
+function getDropdownOptions() {
+  const db = getDatabase();
+  const options = {
+    positions: [],
+    offices: []
+  };
+
+  // Get data from 'Library' sheet
+  const libSheet = db.getSheetByName('Library');
+  if (libSheet && libSheet.getLastRow() > 1) {
+    // Read both columns A and B in one go for efficiency
+    const lastRow = libSheet.getLastRow();
+    const data = libSheet.getRange(2, 1, lastRow - 1, 2).getValues();
+
+    const positions = [];
+    const offices = [];
+
+    data.forEach(row => {
+      if (row[0] && row[0].trim() !== '') { // If there's a value in Column A (Position)
+        positions.push(row[0].trim());
+      }
+      if (row[1] && row[1].trim() !== '') { // If there's a value in Column B (Office)
+        offices.push(row[1].trim());
+      }
+    });
+
+    options.positions = positions;
+    options.offices = offices;
+  }
+
+  return options;
+}
+
+
+/**
+ * Parses the stored month-year string from COC_Balance_Detail and returns a
+ * Date representing the first day of that month in the script's time zone.
+ * Supports "yyyy-MM" and "MM-yyyy" formats.
+ *
+ * @param {string} monthYear The stored month-year value.
+ * @return {Date|null} Parsed date or null if parsing failed.
+ */
+function parseMonthYear(monthYear) {
+  if (!monthYear) return null;
+  const normalized = String(monthYear).trim();
+  let year, month;
+  if (/^\d{4}-\d{2}$/.test(normalized)) {
+    const parts = normalized.split('-');
+    year = parseInt(parts[0], 10);
+    month = parseInt(parts[1], 10) - 1;
+  } else if (/^\d{2}-\d{4}$/.test(normalized)) {
+    const parts = normalized.split('-');
+    month = parseInt(parts[0], 10) - 1;
+    year = parseInt(parts[1], 10);
+  } else {
+    const parsed = new Date(normalized);
+    if (!isNaN(parsed.getTime())) {
+      parsed.setDate(1);
+      parsed.setHours(0, 0, 0, 0);
+      return parsed;
+    }
+    return null;
+  }
+
+  if (isNaN(year) || isNaN(month)) return null;
+  const date = new Date(year, month, 1);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+
+/**
+ * Helper function to convert time string to minutes
+ * @param {string} timeStr Time in HH:mm format
+ * @return {number} Minutes since midnight
+ */
+function timeToMinutes(timeStr) {
+  if (!timeStr) return 0;
+  const parts = timeStr.split(':');
+  return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+}
+
+
+/**
+ * Fallback balance calculation when no ledger entries exist
+ */
+function calculateBalanceFallback(employeeId) {
+  try {
+    const db = getDatabase();
+    const employee = getEmployeeById(employeeId);
+    
+    if (!employee) return 0;
+
+    let balance = parseFloat(employee.initialBalance) || 0;
+
+    // Sum all active COC earned
+    const recordsSheet = db.getSheetByName('COC_Records');
+    if (recordsSheet && recordsSheet.getLastRow() > 1) {
+      const recData = recordsSheet.getDataRange().getValues();
+      const searchId = String(employeeId).trim();
+      
+      for (let i = 1; i < recData.length; i++) {
+        const row = recData[i];
+        const rowEmpId = String(row[1] || '').trim();
+        const status = row[15];
+        
+        if (rowEmpId === searchId && status === 'Active') {
+          const isInitial = (row[0] || '').startsWith('INIT-');
+          if (!isInitial) {
+            balance += parseFloat(row[12]) || 0;
+          }
+        }
+      }
+    }
+
+    // Subtract all approved CTO used
+    const ctoSheet = db.getSheetByName('CTO_Applications');
+    if (ctoSheet && ctoSheet.getLastRow() > 1) {
+      const ctoData = ctoSheet.getDataRange().getValues();
+      const searchId = String(employeeId).trim();
+      
+      for (let i = 1; i < ctoData.length; i++) {
+        const row = ctoData[i];
+        const rowEmpId = String(row[1] || '').trim();
+        const status = row[10];
+        
+        if (rowEmpId === searchId && status === 'Approved') {
+          balance -= parseFloat(row[4]) || 0;
+        }
+      }
+    }
+    
+    return balance < 0 ? 0 : balance;
+    
+  } catch (error) {
+    Logger.log('ERROR in calculateBalanceFallback: ' + error.message);
+    return 0;
+  }
+}
+
