@@ -1,0 +1,466 @@
+// -----------------------------------------------------------------------------
+// DebugAndTest.gs
+// Testing and Diagnostic Functions
+// -----------------------------------------------------------------------------
+
+/**
+ * DEBUG FUNCTION: Check what data exists for a specific employee and month
+ * This helps diagnose why records aren't showing
+ */
+function debugCOCRecords(employeeId, month, year) {
+  try {
+    const db = SpreadsheetApp.openById(DATABASE_ID);
+    const recordsSheet = db.getSheetByName('COC_Records');
+    const data = recordsSheet.getDataRange().getValues();
+
+    const monthYear = `${year}-${String(month).padStart(2, '0')}`;
+
+    Logger.log('=== DEBUG COC RECORDS ===');
+    Logger.log(`Looking for: Employee ID = "${employeeId}", Month/Year = "${monthYear}"`);
+    Logger.log(`Total rows in sheet: ${data.length}`);
+    Logger.log('');
+
+    // Check header
+    Logger.log('Headers:');
+    Logger.log(data[0]);
+    Logger.log('');
+
+    let matchingRecords = 0;
+    let recordsForEmployee = 0;
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const rowEmpId = row[RECORD_COLS.EMPLOYEE_ID];
+      const rowMonthYear = row[RECORD_COLS.MONTH_YEAR];
+      const rowStatus = row[RECORD_COLS.STATUS];
+      const rowDate = row[RECORD_COLS.DATE_RENDERED];
+
+      // Count all records for this employee
+      if (rowEmpId === employeeId) {
+        recordsForEmployee++;
+        Logger.log(`Row ${i + 1}: EmpID="${rowEmpId}", MonthYear="${rowMonthYear}", Status="${rowStatus}", Date="${rowDate}"`);
+
+        // Check if it matches our filter
+        if (rowMonthYear === monthYear) {
+          matchingRecords++;
+          Logger.log(`  ^^^ MATCHES! ^^^`);
+        }
+      }
+    }
+
+    Logger.log('');
+    Logger.log(`Summary: Found ${recordsForEmployee} total records for employee ${employeeId}`);
+    Logger.log(`Found ${matchingRecords} records matching month/year ${monthYear}`);
+
+    return {
+      totalRecordsForEmployee: recordsForEmployee,
+      matchingRecords: matchingRecords
+    };
+
+  } catch (e) {
+    Logger.log(`Error in debugCOCRecords: ${e}`);
+    return { error: e.message };
+  }
+}
+
+
+/**
+ * Menu function to debug COC records for Maria L Garcia in October 2025
+ * This helps diagnose the "No entries recorded" issue
+ */
+function debugMariaOctober2025() {
+  const ui = SpreadsheetApp.getUi();
+
+  // Get Maria's employee ID - you may need to adjust this
+  const employeeId = ui.prompt(
+    'Enter Employee ID',
+    'Enter the Employee ID to debug (e.g., EMP001):',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (employeeId.getSelectedButton() === ui.Button.OK) {
+    const empId = employeeId.getResponseText();
+
+    try {
+      // Run debug function
+      const result = debugCOCRecords(empId, 10, 2025);
+
+      const message = `Debug Results:\n\n` +
+        `Total records for ${empId}: ${result.totalRecordsForEmployee}\n` +
+        `Matching October 2025: ${result.matchingRecords}\n\n` +
+        `Check the Execution log (View > Execution log) for detailed information.`;
+
+      ui.alert('Debug Complete', message, ui.ButtonSet.OK);
+    } catch (e) {
+      ui.alert('Debug Error', e.message || String(e), ui.ButtonSet.OK);
+    }
+  }
+}
+
+
+function debugAllThreeFunctions() {
+  const empId = 'EMP002'; // Juan A Dela Cruz Jr.
+  
+  try {
+    Logger.log('=== Testing apiGetLedger ===');
+    const ledger = apiGetLedger(empId);
+    Logger.log('✓ Ledger: ' + ledger.entries.length + ' entries, balance: ' + ledger.balance);
+  } catch (e) {
+    Logger.log('✗ apiGetLedger failed: ' + e.message);
+  }
+  
+  try {
+    Logger.log('=== Testing apiGetCOCBalanceBreakdown ===');
+    const breakdown = apiGetCOCBalanceBreakdown(empId);
+    Logger.log('✓ Breakdown: ' + breakdown.length + ' active entries');
+  } catch (e) {
+    Logger.log('✗ apiGetCOCBalanceBreakdown failed: ' + e.message);
+  }
+  
+  try {
+    Logger.log('=== Testing apiGetEmployeeCTOApplications ===');
+    const ctos = apiGetEmployeeCTOApplications(empId);
+    Logger.log('✓ CTOs: ' + ctos.length + ' applications');
+  } catch (e) {
+    Logger.log('✗ apiGetEmployeeCTOApplications failed: ' + e.message);
+  }
+  
+  Logger.log('=== Test Complete ===');
+}
+
+
+/**
+ * Test function
+ */
+function testGetBalance() {
+  const empId = 'EMP008'; // Patrick E Tan
+  
+  const balanceFromLedger = apiGetBalance(empId);
+  Logger.log('Balance from Ledger: ' + balanceFromLedger);
+  
+  const balanceFromDetail = apiGetBalanceFromDetail(empId);
+  Logger.log('Balance from Detail: ' + balanceFromDetail);
+}
+
+
+/**
+ * TEST THIS NEW VERSION
+ * Run this after replacing apiGetLedger
+ */
+function testApiGetLedgerDirect() {
+  const empId = 'EMP002';
+  Logger.log('Testing apiGetLedger for ' + empId);
+  
+  const result = apiGetLedger(empId);
+  
+  Logger.log('\n=== RESULT ===');
+  Logger.log('Type: ' + typeof result);
+  Logger.log('Balance: ' + result.balance);
+  Logger.log('Entries: ' + result.entries.length);
+  
+  if (result.entries.length > 0) {
+    Logger.log('\nFirst entry:');
+    Logger.log(JSON.stringify(result.entries[0], null, 2));
+  }
+  
+  if (result.error) {
+    Logger.log('\nERROR: ' + result.error);
+  }
+}
+
+
+/**
+ * Test function - use this to debug
+ */
+function testGetEmployeeCTOApplications() {
+  const empId = 'EMP008'; // Patrick E Tan
+  const apps = apiGetEmployeeCTOApplications(empId);
+  Logger.log('Applications found: ' + apps.length);
+  Logger.log(JSON.stringify(apps, null, 2));
+}
+
+
+/**
+ * Test getting all CTO applications
+ */
+function testGetAllCTOApplications() {
+  Logger.log('=== Testing apiGetAllCTOApplications ===');
+  
+  const apps = apiGetAllCTOApplications();
+  
+  Logger.log('Total applications: ' + apps.length);
+  
+  if (apps.length > 0) {
+    Logger.log('\nFirst application:');
+    Logger.log(JSON.stringify(apps[0], null, 2));
+    
+    // Count by status
+    const stats = {};
+    apps.forEach(app => {
+      stats[app.status] = (stats[app.status] || 0) + 1;
+    });
+    
+    Logger.log('\nStatistics:');
+    Object.keys(stats).forEach(status => {
+      Logger.log('  ' + status + ': ' + stats[status]);
+    });
+  }
+  
+  Logger.log('\n=== Test Complete ===');
+}
+
+
+/**
+ * Test cancelling a CTO application
+ */
+function testCancelCTOApplication() {
+  // CHANGE THIS to a real application ID from your sheet
+  const testAppId = 'CTO-20251025001613300'; 
+  
+  Logger.log('=== Testing apiCancelCTOApplication ===');
+  Logger.log('Application ID: ' + testAppId);
+  
+  const result = apiCancelCTOApplication(testAppId);
+  
+  Logger.log('\nResult:');
+  Logger.log('Success: ' + result.success);
+  Logger.log('Message: ' + result.message);
+  
+  Logger.log('\n=== Test Complete ===');
+}
+
+
+/**
+ * Test updating a CTO application
+ */
+function testUpdateCTOApplication() {
+  // CHANGE THESE to real values from your sheet
+  const testAppId = 'CTO-20251025001613300'; // Example ID - CHANGE THIS
+  const newHours = 8.0; // Change from current value
+  const newStartDate = '2025-10-25'; // Example Date - CHANGE THIS
+  const newEndDate = '2025-10-25';   // Example Date - CHANGE THIS
+  const newRemarks = 'Updated hours for testing - Now 8 hours';
+
+  Logger.log('=== Testing apiUpdateCTOApplication ===');
+  Logger.log('Application ID: ' + testAppId);
+
+  const result = apiUpdateCTOApplication(testAppId, newHours, newStartDate, newEndDate, newRemarks);
+
+  Logger.log('\nResult:');
+  Logger.log('Success: ' + result.success);
+  Logger.log('Message: ' + result.message);
+
+  Logger.log('\n=== Test Complete ===');
+}
+
+
+function testAllSerializations() {
+  const empId = 'EMP002';
+  
+  Logger.log('========================================');
+  Logger.log('Testing all API serializations for ' + empId);
+  Logger.log('========================================\n');
+  
+  // Test 1: Ledger
+  Logger.log('TEST 1: apiGetLedger');
+  try {
+    const ledger = apiGetLedger(empId);
+    const json1 = JSON.stringify(ledger);
+    Logger.log('✅ Ledger serialization OK (' + json1.length + ' chars)');
+    Logger.log('   Balance: ' + ledger.balance);
+    Logger.log('   Entries: ' + ledger.entries.length);
+  } catch (e) {
+    Logger.log('❌ Ledger serialization FAILED: ' + e.message);
+  }
+  
+  // Test 2: Breakdown
+  Logger.log('\nTEST 2: apiGetCOCBalanceBreakdown');
+  try {
+    const breakdown = apiGetCOCBalanceBreakdown(empId);
+    const json2 = JSON.stringify(breakdown);
+    Logger.log('✅ Breakdown serialization OK (' + json2.length + ' chars)');
+    Logger.log('   Entries: ' + breakdown.length);
+  } catch (e) {
+    Logger.log('❌ Breakdown serialization FAILED: ' + e.message);
+  }
+  
+  // Test 3: CTOs
+  Logger.log('\nTEST 3: apiGetEmployeeCTOApplications');
+  try {
+    const ctos = apiGetEmployeeCTOApplications(empId);
+    const json3 = JSON.stringify(ctos);
+    Logger.log('✅ CTOs serialization OK (' + json3.length + ' chars)');
+    Logger.log('   Entries: ' + ctos.length);
+  } catch (e) {
+    Logger.log('❌ CTOs serialization FAILED: ' + e.message);
+  }
+  
+  Logger.log('\n========================================');
+  Logger.log('All tests complete!');
+  Logger.log('========================================');
+}
+
+
+/**
+ * TEST FUNCTION: Run FIFO integrity check
+ */
+function testFIFOIntegrityCheck() {
+  Logger.log('=== Testing FIFO Integrity Check ===');
+  
+  // Test on a specific employee (replace with actual employee ID)
+  const testEmployeeId = 'EMP001';
+  
+  try {
+    const report = apiFIFOIntegrityCheck(testEmployeeId);
+    Logger.log('Check completed: ' + report.summary);
+    Logger.log('Total discrepancies: ' + report.totalDiscrepancies);
+    
+    if (report.integrityIssues.length > 0) {
+      Logger.log('Issues found:');
+      report.integrityIssues.forEach(issue => {
+        Logger.log(`Employee ${issue.employeeId}: ${issue.issues.length} issue(s)`);
+        issue.issues.forEach(i => {
+          Logger.log(`  - ${i.type}: ${i.message}`);
+        });
+      });
+    }
+  } catch (error) {
+    Logger.log('Test failed: ' + error.message);
+  }
+}
+
+
+/**
+ * DIAGNOSTIC FUNCTION
+ * Run this manually to check the COC_Ledger structure and find EMP002's data
+ */
+function diagnosticCheckLedgerForEMP002() {
+  const empId = 'EMP002';
+  const db = getDatabase();
+  const ledgerSheet = db.getSheetByName('COC_Ledger');
+  
+  Logger.log('=== DIAGNOSTIC: COC_Ledger Structure ===');
+  Logger.log('Sheet name: ' + ledgerSheet.getName());
+  Logger.log('Last row: ' + ledgerSheet.getLastRow());
+  Logger.log('Last column: ' + ledgerSheet.getLastColumn());
+  
+  // Get first few rows to check structure
+  const data = ledgerSheet.getDataRange().getValues();
+  
+  Logger.log('\n--- HEADER ROW (Row 1) ---');
+  Logger.log('Headers: ' + JSON.stringify(data[0]));
+  
+  Logger.log('\n--- FIRST DATA ROW (Row 2) ---');
+  if (data.length > 1) {
+    Logger.log('Row 2 data: ' + JSON.stringify(data[1]));
+    Logger.log('Row 2, Column B (index 1): "' + data[1][1] + '"');
+    Logger.log('Row 2, Column B type: ' + typeof data[1][1]);
+  }
+  
+  Logger.log('\n--- SEARCHING FOR EMP002 ---');
+  let foundCount = 0;
+  
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const cellValue = row[1]; // Column B (Employee ID)
+    
+    // Check if this row contains EMP002
+    if (cellValue === empId) {
+      foundCount++;
+      Logger.log('✓ Found exact match at row ' + (i + 1));
+      Logger.log('  Full row: ' + JSON.stringify(row));
+      
+      if (foundCount <= 3) { // Show first 3 matches in detail
+        Logger.log('  Column A (Ledger ID): "' + row[0] + '"');
+        Logger.log('  Column B (Employee ID): "' + row[1] + '"');
+        Logger.log('  Column C (Employee Name): "' + row[2] + '"');
+        Logger.log('  Column D (Transaction Date): "' + row[3] + '"');
+        Logger.log('  Column E (Transaction Type): "' + row[4] + '"');
+      }
+    } else if (String(cellValue).indexOf(empId) !== -1) {
+      Logger.log('⚠ Found partial match at row ' + (i + 1) + ': "' + cellValue + '"');
+    }
+  }
+  
+  Logger.log('\n--- SUMMARY ---');
+  Logger.log('Total exact matches for "' + empId + '": ' + foundCount);
+  
+  if (foundCount === 0) {
+    Logger.log('\n⚠ WARNING: No exact matches found!');
+    Logger.log('Checking for similar values in column B...');
+    
+    const uniqueIds = new Set();
+    for (let i = 1; i < Math.min(data.length, 20); i++) {
+      uniqueIds.add('"' + data[i][1] + '"');
+    }
+    Logger.log('Sample Employee IDs from first 20 rows:');
+    Array.from(uniqueIds).forEach(id => Logger.log('  ' + id));
+  }
+  
+  Logger.log('\n=== END DIAGNOSTIC ===');
+}
+
+
+/**
+ * DIAGNOSTIC: Check what getCurrentCOCBalance returns for EMP002
+ */
+function diagnosticCheckBalanceForEMP002() {
+  const empId = 'EMP002';
+  
+  Logger.log('=== DIAGNOSTIC: getCurrentCOCBalance for ' + empId + ' ===');
+  
+  try {
+    const balance = getCurrentCOCBalance(empId);
+    Logger.log('✓ Balance returned: ' + balance);
+  } catch (e) {
+    Logger.log('✗ Error: ' + e.message);
+    Logger.log('Stack: ' + e.stack);
+  }
+  
+  Logger.log('=== END DIAGNOSTIC ===');
+}
+
+
+/**
+ * DIAGNOSTIC: Check what apiGetLedger returns for EMP002
+ */
+function diagnosticCheckApiGetLedger() {
+  const empId = 'EMP002';
+  
+  Logger.log('=== DIAGNOSTIC: apiGetLedger for ' + empId + ' ===');
+  
+  try {
+    const result = apiGetLedger(empId);
+    Logger.log('✓ Result returned:');
+    Logger.log('  Balance: ' + result.balance);
+    Logger.log('  Entries count: ' + result.entries.length);
+    
+    if (result.entries.length > 0) {
+      Logger.log('  First entry: ' + JSON.stringify(result.entries[0]));
+    } else {
+      Logger.log('  ⚠ No entries found!');
+    }
+    
+    if (result.error) {
+      Logger.log('  ⚠ Error property: ' + result.error);
+    }
+  } catch (e) {
+    Logger.log('✗ Error: ' + e.message);
+    Logger.log('Stack: ' + e.stack);
+  }
+  
+  Logger.log('=== END DIAGNOSTIC ===');
+}
+
+
+/**
+ * RUN ALL DIAGNOSTICS
+ */
+function runAllDiagnostics() {
+  diagnosticCheckLedgerForEMP002();
+  Logger.log('\n\n');
+  diagnosticCheckBalanceForEMP002();
+  Logger.log('\n\n');
+  diagnosticCheckApiGetLedger();
+}
+
