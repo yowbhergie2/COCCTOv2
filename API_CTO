@@ -1,0 +1,445 @@
+// -----------------------------------------------------------------------------
+// API_CTO.gs
+//
+// Contains all API functions related to managing
+// CTO (Compensatory Time Off) applications.
+// -----------------------------------------------------------------------------
+
+/**
+ * API: Record CTO with FIFO
+ */
+function apiRecordCTOWithFIFO(employeeId, hours, startDate, endDate, remarks) {
+  // This function is a wrapper. The core logic is assumed to be
+  // in another file (e.g., CTO.gs or Logic.gs).
+  return recordCTOApplicationWithFIFO(employeeId, hours, startDate, endDate, remarks);
+}
+
+/**
+ * Get all CTO applications from the database with proper serialization
+ */
+function apiGetAllCTOApplications() {
+  try {
+    const db = getDatabase();
+    const ctoSheet = db.getSheetByName('CTO_Applications');
+
+    if (!ctoSheet || ctoSheet.getLastRow() < 2) {
+      Logger.log('No CTO applications found');
+      return [];
+    }
+
+    const data = ctoSheet.getDataRange().getValues();
+    const applications = [];
+    const TIME_ZONE = getScriptTimeZone();
+
+    // Helper to format dates safely
+    function safeFormatDate(value) {
+      if (!value) return '';
+      try {
+        if (value instanceof Date) {
+          return Utilities.formatDate(value, TIME_ZONE, 'yyyy-MM-dd');
+        }
+        return String(value);
+      } catch (e) {
+        return String(value);
+      }
+    }
+
+    // Process each row (skip header)
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+
+      // Skip empty rows
+      if (!row[0]) continue;
+
+      try {
+        // Ensure all data is serializable
+        const app = {
+          appId: String(row[0] || ''),
+          employeeId: String(row[1] || ''),
+          employeeName: String(row[2] || ''),
+          office: String(row[3] || ''),
+          hours: parseFloat(row[4]) || 0,
+          startDate: safeFormatDate(row[5]),
+          endDate: safeFormatDate(row[6]),
+          appliedDate: safeFormatDate(row[7]),
+          approvedBy: String(row[8] || ''),
+          approvedDate: safeFormatDate(row[9]),
+          status: String(row[10] || 'Pending'),
+          remarks: String(row[11] || '')
+        };
+
+        applications.push(app);
+
+      } catch (rowError) {
+        Logger.log('Error processing CTO application row ' + (i + 1) + ': ' + rowError.message);
+        continue;
+      }
+    }
+
+    Logger.log('Loaded ' + applications.length + ' CTO applications');
+    return applications;
+
+  } catch (error) {
+    Logger.log('ERROR in apiGetAllCTOApplications: ' + error.message);
+    Logger.log('Stack: ' + error.stack);
+    return [];
+  }
+}
+
+/**
+ * API: Update a CTO Application
+ */
+function apiUpdateCTOApplication(applicationId, newHours, newStartDate, newEndDate, newRemarks) {
+  try {
+    Logger.log('=== Updating CTO Application: ' + applicationId + ' ===');
+    Logger.log('New hours: ' + newHours);
+    Logger.log('New dates: ' + newStartDate + ' to ' + newEndDate);
+
+    const db = getDatabase();
+    const ctoSheet = db.getSheetByName('CTO_Applications');
+    const ledgerSheet = db.getSheetByName('COC_Ledger'); // Ensure ledger sheet is available
+
+    if (!ctoSheet) throw new Error('CTO_Applications sheet not found');
+    if (!ledgerSheet) throw new Error('COC_Ledger sheet not found'); // Added check
+
+    // Find the application
+    const ctoData = ctoSheet.getDataRange().getValues();
+    let appRow = -1;
+    let application = null;
+
+    for (let i = 1; i < ctoData.length; i++) {
+      if (ctoData[i][0] === applicationId) {
+        appRow = i + 1; // Sheet row (1-indexed)
+        application = {
+          id: ctoData[i][0],
+          employeeId: ctoData[i][1],
+          employeeName: ctoData[i][2],
+          oldHours: parseFloat(ctoData[i][4]) || 0,
+          oldStartDate: ctoData[i][5], // Keep original format for comparison/logging
+          oldEndDate: ctoData[i][6], // Keep original format for comparison/logging
+          oldRemarks: ctoData[i][11],
+          status: ctoData[i][10]
+        };
+        break;
+      }
+    }
+
+    if (!application) {
+      throw new Error('CTO application not found: ' + applicationId);
+    }
+
+    // Check if already cancelled
+    if (application.status === 'Cancelled') {
+      return {
+        success: false,
+        message: 'Cannot update a cancelled application'
+      };
+    }
+
+    // Allow updating Approved or Pending
+    if (application.status !== 'Pending' && application.status !== 'Approved') {
+      return {
+        success: false,
+        message: 'Only Pending or Approved applications can be updated. This application is ' + application.status
+      };
+    }
+
+
+    Logger.log('Found application: ' + application.employeeName);
+    Logger.log('Old hours: ' + application.oldHours + ', New hours: ' + newHours);
+
+    // --- START VALIDATION ---
+    const validationError = validateCTOUpdate(application, newHours, newStartDate, newEndDate);
+    if (validationError) {
+      return {
+        success: false,
+        message: validationError
+      };
+    }
+    // --- END VALIDATION ---
+
+
+    // --- Apply Updates ---
+    const TIME_ZONE = getScriptTimeZone();
+    const updateTimestamp = new Date(); // Use consistent timestamp for updates
+
+    // Update CTO_Applications sheet
+    ctoSheet.getRange(appRow, 5).setValue(newHours); // Column E (Hours)
+    ctoSheet.getRange(appRow, 6).setValue(new Date(newStartDate)); // Column F (Start Date) - Ensure it's a Date object
+    ctoSheet.getRange(appRow, 7).setValue(new Date(newEndDate)); // Column G (End Date) - Ensure it's a Date object
+    // Append update info to remarks
+    const updateRemark = `\n[Updated on ${Utilities.formatDate(updateTimestamp, TIME_ZONE, 'yyyy-MM-dd HH:mm')} by ${Session.getActiveUser().getEmail()}] ${newRemarks || '(No additional remarks)'}`;
+    ctoSheet.getRange(appRow, 12).setValue((application.oldRemarks || '') + updateRemark); // Column L (Remarks)
+
+    Logger.log('✓ CTO application updated in database');
+
+    // --- Ledger and FIFO Adjustments (Only if status is Approved and hours changed) ---
+    let hoursDifference = 0;
+    if (application.status === 'Approved') {
+      hoursDifference = newHours - application.oldHours;
+      Logger.log(`Status is Approved. Hours difference: ${hoursDifference}`);
+
+      if (hoursDifference !== 0) {
+        // If hours increased, deduct using FIFO
+        if (hoursDifference > 0) {
+          try {
+            deductCOCHoursFIFO(application.employeeId, hoursDifference, applicationId + '-UPDATE'); // Use a distinct reference for update adjustment
+            Logger.log('✓ Deducted additional ' + hoursDifference + ' hours using FIFO for update.');
+          } catch (deductError) {
+            Logger.log('ERROR during FIFO deduction for update: ' + deductError.message);
+            // Rollback changes? Or just return error? For now, return error.
+            // It might be better to revert the CTO sheet change here.
+            return {
+              success: false,
+              message: 'Failed to apply update: ' + deductError.message
+            };
+          }
+        }
+        // If hours decreased, restore using FIFO
+        else if (hoursDifference < 0) {
+          try {
+            restoreCOCHoursFIFO(application.employeeId, Math.abs(hoursDifference), applicationId); // Restore based on original ID
+            Logger.log('✓ Restored ' + Math.abs(hoursDifference) + ' hours to FIFO due to update.');
+          } catch (restoreError) {
+            Logger.log('ERROR during FIFO restoration for update: ' + restoreError.message);
+            // Rollback changes? Or just return error? For now, return error.
+            return {
+              success: false,
+              message: 'Failed to apply update: ' + restoreError.message
+            };
+          }
+        }
+      }
+    } else {
+      Logger.log('Status is Pending. No ledger/FIFO adjustments needed yet.');
+    }
+
+
+    // --- Add a specific Ledger Entry for the UPDATE action itself ---
+    const currentBalance = getCurrentCOCBalance(application.employeeId); // Get balance AFTER potential adjustments
+    const updateLedgerRemark = `CTO Updated: ${applicationId}. ` +
+      (hoursDifference !== 0 ? `Hours changed ${application.oldHours} -> ${newHours} (${hoursDifference > 0 ? '+' : ''}${hoursDifference.toFixed(2)}). ` : '') +
+      `Dates changed. ${newRemarks || ''}`;
+
+    const updateLedgerEntry = [
+      generateLedgerEntryId(),
+      application.employeeId,
+      application.employeeName,
+      updateTimestamp, // Use the consistent timestamp
+      'CTO Updated', // New Transaction Type
+      applicationId, // Reference the original CTO ID
+      (hoursDifference < 0) ? Math.abs(hoursDifference) : 0, // Restore is like earning COC back
+      (hoursDifference > 0) ? hoursDifference : 0, // Increase is like using more CTO
+      currentBalance,
+      '', // Month-Year Earned (N/A for update)
+      '', // Expiration Date (N/A for update)
+      Session.getActiveUser().getEmail(),
+      updateLedgerRemark.trim() // Trim potential extra space at the end
+    ];
+    ledgerSheet.appendRow(updateLedgerEntry);
+    Logger.log('✓ Added "CTO Updated" entry to ledger');
+    // --- End Ledger Update ---
+
+
+    Logger.log('=== CTO Update Complete ===');
+
+    return {
+      success: true,
+      message: 'CTO application updated successfully'
+    };
+
+  } catch (error) {
+    Logger.log('ERROR in apiUpdateCTOApplication: ' + error.message);
+    Logger.log('Stack: ' + error.stack);
+
+    return {
+      success: false,
+      message: 'Failed to update CTO application: ' + error.message
+    };
+  }
+}
+
+/**
+ * API Wrapper for cancelling a CTO application.
+ */
+function apiCancelCTO(ctoId, remarks) {
+  // This function is a wrapper. The core logic is assumed to be
+  // in another file (e.g., CTO.gs or Logic.gs).
+  // Note: The original function `apiCancelCTOApplication` seems to be the
+  // real implementation, so we call that.
+  return apiCancelCTOApplication(ctoId);
+}
+
+/**
+ * Cancel a CTO application and restore the COC hours using FIFO
+ */
+function apiCancelCTOApplication(applicationId) {
+  try {
+    Logger.log('=== Cancelling CTO Application: ' + applicationId + ' ===');
+
+    const db = getDatabase();
+    const ctoSheet = db.getSheetByName('CTO_Applications');
+    const ledgerSheet = db.getSheetByName('COC_Ledger');
+    const detailSheet = db.getSheetByName('COC_Balance_Detail');
+
+    if (!ctoSheet) throw new Error('CTO_Applications sheet not found');
+    if (!ledgerSheet) throw new Error('COC_Ledger sheet not found');
+    if (!detailSheet) throw new Error('COC_Balance_Detail sheet not found');
+
+    // Find the application
+    const ctoData = ctoSheet.getDataRange().getValues();
+    let appRow = -1;
+    let application = null;
+
+    for (let i = 1; i < ctoData.length; i++) {
+      if (ctoData[i][0] === applicationId) {
+        appRow = i + 1; // Sheet row (1-indexed)
+        application = {
+          id: ctoData[i][0],
+          employeeId: ctoData[i][1],
+          employeeName: ctoData[i][2],
+          hours: parseFloat(ctoData[i][4]) || 0,
+          status: ctoData[i][10]
+        };
+        break;
+      }
+    }
+
+    if (!application) {
+      throw new Error('CTO application not found: ' + applicationId);
+    }
+
+    // Check if already cancelled
+    if (application.status === 'Cancelled') {
+      return {
+        success: false,
+        message: 'This application is already cancelled'
+      };
+    }
+
+    // --- START MODIFICATION ---
+    // Allow cancelling 'Pending' or 'Approved' applications
+    if (application.status !== 'Pending' && application.status !== 'Approved') {
+      return {
+        success: false,
+        // Updated error message
+        message: 'Only Pending or Approved applications can be cancelled. This application is ' + application.status
+      };
+    }
+    // --- END MODIFICATION ---
+
+    Logger.log('Application found: ' + application.employeeName + ', Status: ' + application.status + ', Hours: ' + application.hours);
+
+    // Update CTO application status
+    ctoSheet.getRange(appRow, 11).setValue('Cancelled'); // Column K (Status)
+    ctoSheet.getRange(appRow, 12).setValue('Cancelled by user on ' + new Date()); // Column L (Remarks)
+
+    Logger.log('✓ CTO application status updated to Cancelled');
+
+    // --- START MODIFICATION: Restore hours ONLY if it was Approved ---
+    // If it was Pending, no hours were deducted yet, so no need to restore.
+    let restoredHours = 0; // Initialize restoredHours
+    if (application.status === 'Approved') {
+      Logger.log('Restoring hours because status was Approved.');
+      // Find and reverse the ledger entry
+      const ledgerData = ledgerSheet.getDataRange().getValues();
+      let ledgerRow = -1;
+
+      for (let i = ledgerData.length - 1; i >= 1; i--) {
+        if (ledgerData[i][1] === application.employeeId &&
+          ledgerData[i][5] === applicationId &&
+          ledgerData[i][4] === 'CTO Used') {
+          ledgerRow = i + 1;
+          break;
+        }
+      }
+
+      if (ledgerRow > 0) {
+        // Mark ledger entry as cancelled
+        ledgerSheet.getRange(ledgerRow, 5).setValue('CTO Cancelled (Approved)'); // Clarify transaction type
+        ledgerSheet.getRange(ledgerRow, 13).setValue('Cancelled on ' + new Date()); // Remarks
+        Logger.log('✓ Original CTO Used ledger entry marked as cancelled');
+      } else {
+        Logger.log('⚠ Original CTO Used ledger entry not found, proceeding with balance restoration.');
+      }
+
+      // Restore the COC hours in detail sheet (reverse FIFO deduction)
+      try {
+        // --- Call the separate restore function ---
+        restoredHours = restoreCOCHoursFIFO(application.employeeId, application.hours, applicationId);
+        if (restoredHours > 0) {
+          Logger.log('✓ Restored ' + restoredHours + ' hours to COC balance via FIFO.');
+        } else {
+          Logger.log('⚠ No hours were restored via FIFO. This might be okay if the deduction logic changed or was manual.');
+        }
+      } catch (restoreError) {
+        Logger.log('ERROR during FIFO restore: ' + restoreError.message);
+        // Even if restore fails, continue with ledger update to reflect cancellation attempt
+      }
+
+      // Add a reversal entry to the ledger ONLY if hours were deducted (status was Approved)
+      const newBalance = getCurrentCOCBalance(application.employeeId); // Recalculate balance AFTER potential restore
+      const ledgerEntry = [
+        generateLedgerEntryId(),
+        application.employeeId,
+        application.employeeName,
+        new Date(),
+        'CTO Cancelled (Restore)', // Clearer transaction type
+        applicationId,
+        application.hours, // COC Earned (restored)
+        0, // CTO Used
+        newBalance,
+        '', // Month-Year Earned
+        '', // Expiration Date
+        Session.getActiveUser().getEmail(),
+        'CTO application (Approved) cancelled, ' + application.hours + ' hrs restored'
+      ];
+      ledgerSheet.appendRow(ledgerEntry);
+      Logger.log('✓ Added restoration entry to ledger');
+
+    } else {
+      // If status was 'Pending', just log that no restoration needed
+      Logger.log('Status was Pending, no hours to restore.');
+      // Optionally add a simpler ledger entry just marking cancellation
+      const newBalance = getCurrentCOCBalance(application.employeeId); // Get current balance
+      const ledgerEntry = [
+        generateLedgerEntryId(),
+        application.employeeId,
+        application.employeeName,
+        new Date(),
+        'CTO Cancelled (Pending)', // Clearer transaction type
+        applicationId,
+        0, // COC Earned
+        0, // CTO Used
+        newBalance, // Balance remains unchanged
+        '', // Month-Year Earned
+        '', // Expiration Date
+        Session.getActiveUser().getEmail(),
+        'CTO application (Pending) cancelled before approval.'
+      ];
+      ledgerSheet.appendRow(ledgerEntry);
+      Logger.log('✓ Added ledger entry for Pending cancellation.');
+    }
+    // --- END MODIFICATION ---
+
+    Logger.log('=== CTO Cancellation Complete ===');
+
+    return {
+      success: true,
+      // --- MODIFICATION: Updated success message based on status ---
+      message: application.status === 'Approved' ?
+        'CTO application cancelled successfully. ' + application.hours + ' hours have been restored to the employee\'s COC balance.' :
+        'Pending CTO application cancelled successfully.'
+      // --- END MODIFICATION ---
+    };
+
+  } catch (error) {
+    Logger.log('ERROR in apiCancelCTOApplication: ' + error.message);
+    Logger.log('Stack: ' + error.stack);
+
+    return {
+      success: false,
+      message: 'Failed to cancel CTO application: ' + error.message
+    };
+  }
+}
