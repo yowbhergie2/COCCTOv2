@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Record CTO Application</title>
+
+  <!-- Tailwind and icon libraries -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    window.CURRENT_PAGE = 'cto-record-form';
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.1.0/css/select2.min.css" rel="stylesheet" />
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.0/font/bootstrap-icons.min.css" rel="stylesheet" />
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f7fafc;
+    }
+    /* Custom Select2 styling */
+    .select2-container .select2-selection--single {
+      height: 3rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.5rem;
+      padding: 0.625rem 0.75rem;
+      background-color: white;
+      font-size: 15px;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__rendered {
+      line-height: 1.75rem;
+      padding-left: 0.5rem;
+      color: #1f2937;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+      height: 2.875rem;
+      right: 0.5rem;
+    }
+    .select2-dropdown {
+      border: 1px solid #d1d5db;
+      border-radius: 0.5rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+    .select2-results__option {
+      padding: 12px 16px;
+      font-size: 15px;
+      background-color: white;
+      transition: background-color 0.15s;
+    }
+    .select2-results__option:hover {
+      background-color: #f3f4f6 !important;
+    }
+    .select2-search__field {
+      border-radius: 0.375rem;
+      border: 1px solid #d1d5db;
+      padding: 0.5rem !important;
+      font-size: 14px !important;
+    }
+    .select2-search--dropdown {
+      padding: 8px;
+      background-color: #f9fafb;
+    }
+    .select2-container--default .select2-search--dropdown .select2-search__field {
+      border: 1px solid #3b82f6;
+      outline: none;
+    }
+    .select2-container--default .select2-search--dropdown .select2-search__field:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+    .select2-results__option--highlighted {
+      background-color: #3b82f6 !important;
+      color: white !important;
+    }
+    /* Spinner animation for submit button */
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .animate-spin {
+      animation: spin 1s linear infinite;
+    }
+  </style>
+</head>
+<body class="p-4 md:p-6">
+  <!-- Page header -->
+  <div class="flex items-center justify-between mb-6">
+    <h4 class="text-2xl font-semibold text-gray-800 flex items-center gap-2">
+      <i class="bi bi-clock-fill"></i> Record CTO Application
+    </h4>
+    <button type="button" class="px-4 py-2 bg-gray-600 text-white font-medium rounded-md shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors" onclick="backToDashboard()">
+      <i class="bi bi-arrow-left-circle"></i> Back to Dashboard
+    </button>
+  </div>
+  <!-- Employee & Balance Section -->
+  <div class="bg-blue-50 rounded-xl shadow-sm p-5 mb-6">
+    <h3 class="text-base font-semibold text-gray-800 mb-3 flex items-center gap-2">
+      <i class="bi bi-person"></i> Employee Information
+    </h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <!-- Employee Select -->
+      <div>
+        <label for="ctoEmployeeSelect" class="block text-sm font-medium text-gray-700 mb-2">
+          Search &amp; Select Employee <span class="text-red-500">*</span>
+        </label>
+        <select id="ctoEmployeeSelect" class="w-full"></select>
+      </div>
+      <!-- Balance Card -->
+      <div>
+        <div class="bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg p-4 text-white text-center shadow-md">
+          <div class="text-xs font-medium opacity-90">Current COC Balance</div>
+          <div class="text-4xl font-bold my-1" id="ctoBalanceValue">0.0</div>
+          <div class="text-xs opacity-75 mb-2">hours</div>
+          <div class="pt-2 border-t border-white border-opacity-20">
+            <div id="ctoEmployeeInfo" class="text-xs font-medium leading-tight"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Application Details Section -->
+  <div class="bg-white rounded-xl shadow-sm p-6 mb-6">
+    <h3 class="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+      <i class="bi bi-file-earmark"></i> Application Details
+    </h3>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <!-- Hours Applied -->
+      <div>
+        <label for="hoursSelect" class="block text-sm font-medium text-gray-700 mb-2">
+          Hours Applied <span class="text-red-500">*</span>
+        </label>
+        <select id="hoursSelect" class="w-full h-12 px-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          <option value="4">4 hours</option>
+          <option value="8">8 hours</option>
+          <option value="12">12 hours</option>
+          <option value="16">16 hours</option>
+          <option value="20">20 hours</option>
+          <option value="24">24 hours</option>
+          <option value="28">28 hours</option>
+          <option value="32">32 hours</option>
+          <option value="36">36 hours</option>
+          <option value="40">40 hours</option>
+        </select>
+      </div>
+      <!-- Start Date -->
+      <div>
+        <label for="startDate" class="block text-sm font-medium text-gray-700 mb-2">
+          Start Date <span class="text-red-500">*</span>
+        </label>
+        <input type="date" id="startDate" class="w-full h-12 px-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+      </div>
+      <!-- End Date -->
+      <div>
+        <label for="endDate" class="block text-sm font-medium text-gray-700 mb-2">
+          End Date <span class="text-red-500">*</span>
+        </label>
+        <input type="date" id="endDate" class="w-full h-12 px-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+      </div>
+    </div>
+    <!-- Remarks -->
+    <div class="mt-4">
+      <label for="remarks" class="block text-sm font-medium text-gray-700 mb-2">Remarks (optional)</label>
+      <textarea id="remarks" rows="2" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></textarea>
+    </div>
+  </div>
+  <!-- Form Status Section -->
+  <div class="bg-white rounded-xl shadow-sm p-6 mb-6">
+    <div class="flex items-center gap-2 mb-4">
+      <i class="bi bi-exclamation-circle text-yellow-500"></i>
+      <h3 class="text-sm font-medium text-gray-600">Form Status</h3>
+    </div>
+    <div id="validationStatus" class="text-sm"></div>
+  </div>
+  <!-- Action Buttons (only one set) -->
+  <div class="flex justify-end gap-3">
+    <button type="button" class="px-6 py-2.5 bg-gray-600 text-white font-medium rounded-lg shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors flex items-center gap-2" id="ctoCancelBtn">
+      <i class="bi bi-x-circle"></i> Close Form
+    </button>
+    <button type="button" class="px-6 py-2.5 bg-blue-600 text-white font-medium rounded-lg shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed" id="ctoSubmitBtn" disabled>
+      <i class="bi bi-check-circle"></i> Submit New CTO
+    </button>
+  </div>
+  <!-- Response Modal -->
+  <div id="responseModal" class="fixed inset-0 z-50 hidden">
+    <div class="fixed inset-0 bg-black bg-opacity-50 transition-opacity" onclick="closeModal()"></div>
+    <div class="fixed inset-0 flex items-center justify-center p-4">
+      <div class="bg-white rounded-xl shadow-2xl max-w-md w-full transform transition-all">
+        <div id="modalHeader" class="px-6 py-4 rounded-t-xl">
+          <h5 class="text-lg font-semibold text-white" id="modalTitle">Result</h5>
+        </div>
+        <div class="px-6 py-4">
+          <div id="modalBody" class="text-gray-700"></div>
+        </div>
+        <div class="px-6 py-4 bg-gray-50 rounded-b-xl flex justify-end">
+          <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors" onclick="closeModal()">OK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- External libraries -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.1.0/js/select2.min.js"></script>
+  <script>
+    /**
+     * Display a modal with a given title, message, and type (success, danger, warning, info).
+     */
+    function showModal(title, message, type) {
+      $('#modalTitle').text(title);
+      $('#modalBody').html(message.replace(/\n/g, '<br>'));
+      const colors = {
+        success: 'bg-green-600',
+        danger: 'bg-red-600',
+        warning: 'bg-yellow-600',
+        info: 'bg-blue-600'
+      };
+      $('#modalHeader').removeClass('bg-green-600 bg-red-600 bg-yellow-600 bg-blue-600')
+                       .addClass(colors[type] || 'bg-blue-600');
+      $('#responseModal').removeClass('hidden');
+    }
+    /**
+     * Hide the response modal.
+     */
+    function closeModal() {
+      $('#responseModal').addClass('hidden');
+    }
+    /**
+     * Load the list of employees from the server and populate the select box.
+     */
+    function loadEmployees() {
+      google.script.run.withSuccessHandler(function(list) {
+        const sel = $('#ctoEmployeeSelect');
+        sel.empty();
+        sel.append('<option></option>');
+        list.forEach(function(emp) {
+          sel.append('<option value="' + emp.id + '" data-office="' + emp.office + '" data-position="' + emp.position + '">' + emp.fullName + '</option>');
+        });
+        sel.select2({placeholder: 'Type to search employee...', width: '100%'});
+      }).withFailureHandler(function(err) {
+        showModal('Error', err.message || err, 'danger');
+      }).apiListEmployees();
+    }
+    /**
+     * Retrieve and display the COC balance for the selected employee.
+     */
+    function updateBalance() {
+      const empId = $('#ctoEmployeeSelect').val();
+      if (!empId) {
+        $('#ctoBalanceValue').text('0.0');
+        $('#ctoEmployeeInfo').text('');
+        validateForm();
+        return;
+      }
+      const selected = $('#ctoEmployeeSelect option:selected');
+      const pos = selected.data('position');
+      const off = selected.data('office');
+      $('#ctoEmployeeInfo').text(pos + ' - ' + off);
+      google.script.run
+        .withSuccessHandler(function(balance) {
+          $('#ctoBalanceValue').text(balance.toFixed(1));
+          validateForm();
+        })
+        .withFailureHandler(function(err) {
+          showModal('Error', err.message || err, 'danger');
+          validateForm();
+        })
+        .apiGetBalance(empId);
+    }
+    /**
+     * Maintain form validation state for each required field.
+     */
+    let formState = {
+      employee: false,
+      hours: false,
+      dates: false,
+      balance: false
+    };
+    // Store a specific error message for date validation. This allows customized feedback
+    // based on which rule failed (e.g., range too long or hours-specific requirements).
+    let dateErrorMessage = '';
+    /**
+     * Validate the entire form, update the validation messages, and enable or disable the submit button accordingly.
+     */
+    function validateForm() {
+      const empId = $('#ctoEmployeeSelect').val();
+      const hours = parseInt($('#hoursSelect').val(), 10);
+      const startStr = $('#startDate').val();
+      const endStr = $('#endDate').val();
+      const balance = parseFloat($('#ctoBalanceValue').text());
+      // Reset state
+      formState = {
+        employee: Boolean(empId),
+        hours: Boolean(hours && hours % 4 === 0),
+        dates: Boolean(startStr && endStr),
+        balance: balance >= hours
+      };
+      // Additional date validations if both dates are set
+      if (formState.dates) {
+        const startDate = new Date(startStr + 'T00:00:00');
+        const endDate = new Date(endStr + 'T00:00:00');
+        // Reset date error message
+        dateErrorMessage = '';
+        const diffDays = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        // Start with assumption that dates are valid
+        let dateIsValid = true;
+        // Check chronological order
+        if (endDate < startDate) {
+          dateIsValid = false;
+          dateErrorMessage = 'End date must not be before the start date.';
+        } else if (diffDays > 5) {
+          dateIsValid = false;
+          dateErrorMessage = 'Date range must not exceed 5 days.';
+        } else if ((hours === 4 || hours === 8) && startDate.getTime() !== endDate.getTime()) {
+          dateIsValid = false;
+          dateErrorMessage = 'For 4 or 8‑hour CTO applications, start and end dates must be the same.';
+        }
+        formState.dates = formState.dates && dateIsValid;
+      } else {
+        // Clear error message if dates are not both set
+        dateErrorMessage = '';
+      }
+      updateValidationStatus();
+      const isValid = Object.values(formState).every(Boolean);
+      $('#ctoSubmitBtn').prop('disabled', !isValid);
+      return isValid;
+    }
+    /**
+     * Display user-friendly validation messages in the Form Status section.
+     */
+    function updateValidationStatus() {
+      const statusDiv = $('#validationStatus');
+      statusDiv.empty();
+      const messages = {
+        employee: {
+          valid: '✓ Employee selected',
+          invalid: '✗ Please select an employee'
+        },
+        hours: {
+          valid: '✓ Valid hours selected',
+          invalid: '✗ Hours must be a multiple of 4'
+        },
+        dates: {
+          valid: '✓ Valid date range selected',
+          // Use a specific error message if available; otherwise fallback to a generic message
+          invalid: dateErrorMessage || '✗ Please check date range (max 5 days, proper format for 4/8 hours)'
+        },
+        balance: {
+          valid: '✓ Sufficient COC balance',
+          invalid: '✗ Insufficient COC balance for requested hours'
+        }
+      };
+      Object.entries(formState).forEach(([key, isValid]) => {
+        const msg = messages[key][isValid ? 'valid' : 'invalid'];
+        const colorClass = isValid ? 'text-green-600' : 'text-red-600';
+        statusDiv.append(`<div class="${colorClass} mb-1">${msg}</div>`);
+      });
+    }
+    function submitCTO() {
+  // Prevent submission if the form is invalid
+  if (!validateForm()) {
+    return;
+  }
+
+  const submitBtn    = $('#ctoSubmitBtn');
+  const originalHtml = submitBtn.html();
+
+  // Disable all form inputs during submission and show a spinner
+  $('select, input, textarea').prop('disabled', true);
+  submitBtn
+    .prop('disabled', true)
+    .html(
+      '<span class="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></span>Submitting...'
+    );
+
+  const empId  = $('#ctoEmployeeSelect').val();
+  const hours  = parseInt($('#hoursSelect').val(), 10);
+  const remarks = $('#remarks').val();
+
+  // Capture raw date strings instead of creating Date objects (Apps Script cannot receive Date objects:contentReference[oaicite:1]{index=1})
+  const startDateVal = $('#startDate').val(); // e.g. "2025-10-24"
+  const endDateVal   = $('#endDate').val();   // e.g. "2025-10-28"
+
+  // If google.script.run is not available, show an error and re-enable the form
+  if (typeof google === 'undefined' || !google.script || !google.script.run) {
+    $('select, input, textarea').prop('disabled', false);
+    submitBtn.prop('disabled', false).html(originalHtml);
+    showModal(
+      'Error',
+      'Server connection is unavailable. Please refresh the page or try again later.',
+      'danger'
+    );
+    return;
+  }
+
+  // Set a timeout to catch any unexpected delays in the server response
+  let timedOut = false;
+  const timeoutId = setTimeout(function () {
+    timedOut = true;
+    $('select, input, textarea').prop('disabled', false);
+    submitBtn.prop('disabled', false).html(originalHtml);
+    showModal('Error', 'The request timed out. Please try again.', 'danger');
+  }, 60000); // 60 seconds timeout to allow server processing
+
+  // Call the server function with only strings and numbers
+  google.script.run
+    .withSuccessHandler(function (res) {
+      // If already timed out, do not proceed
+      if (timedOut) return;
+      clearTimeout(timeoutId);
+
+      // Re-enable form controls and restore button text
+      $('select, input, textarea').prop('disabled', false);
+      submitBtn.prop('disabled', false).html(originalHtml);
+
+      // Show success message
+      showModal(
+        'Success',
+        'CTO Application submitted successfully!<br><br>' +
+          '<strong>Application ID:</strong> ' +
+          (res.ctoId || res.applicationId) +
+          '<br>' +
+          '<strong>New Balance:</strong> ' +
+          (res.newBalance || res.balanceAfter).toFixed(1) +
+          ' hours',
+        'success'
+      );
+
+      // Reset form values
+      $('#ctoEmployeeSelect').val(null).trigger('change');
+      $('#hoursSelect').val('4').trigger('change');
+      $('#startDate').val('');
+      $('#endDate').val('');
+      $('#remarks').val('');
+
+      // Revalidate form
+      validateForm();
+    })
+    .withFailureHandler(function (err) {
+      // If already timed out, do not proceed
+      if (timedOut) return;
+      clearTimeout(timeoutId);
+
+      // Re-enable form on error
+      $('select, input, textarea').prop('disabled', false);
+      submitBtn.prop('disabled', false).html(originalHtml);
+      showModal(
+        'Error',
+        err && err.message ? err.message : String(err),
+        'danger'
+      );
+
+      validateForm();
+    })
+    // IMPORTANT: Pass only primitive values (strings/numbers) to avoid request failure:contentReference[oaicite:2]{index=2}.
+    .apiRecordCTOWithFIFO(empId, hours, startDateVal, endDateVal, remarks);
+}
+
+    // Attach event listeners on DOM ready
+    document.addEventListener('DOMContentLoaded', function() {
+      // Load employees after a short delay to ensure UI is ready
+      setTimeout(loadEmployees, 0);
+      // === FIX 2: Added missing selector ===
+      // Employee select change triggers balance update (validation is called in updateBalance success handler)
+      $('#ctoEmployeeSelect').on('change', function() {
+        updateBalance();
+      });
+      // Hours select change triggers validation
+      $('#hoursSelect').on('change', validateForm);
+      // Date fields change triggers validation
+      $('#startDate, #endDate').on('change', validateForm);
+      // Cancel button closes the form
+      $('#ctoCancelBtn').on('click', function() {
+        google.script.host.close();
+      });
+      // Submit button triggers submission if form is valid
+      $('#ctoSubmitBtn').on('click', function() {
+        if (validateForm()) {
+          submitCTO();
+        }
+      });
+      // Initialize select2 for hours (no search) and employees (search)
+      $('#hoursSelect').select2({ width:'100%', minimumResultsForSearch: -1 });
+      // Perform initial validation to show status messages
+      validateForm();
+    });
+  </script>
+  
+
+
+  <script>
+    // Back to Dashboard function
+    function backToDashboard() {
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run.navigateToPage('Dashboard');
+      } else {
+        window.location.href = 'dashboard_no_sidebar.html';
+      }
+    }
+  </script>
+
+</body>
+</html>
