@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <script>
+    window.CURRENT_PAGE = 'dashboard';
+  </script>
+
+  <!-- Google Fonts (Inter) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Bootstrap Icons (still useful) -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.0/font/bootstrap-icons.min.css" rel="stylesheet" />
+
+  <style>
+    /* Use the Inter font family */
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f7fafc; /* Lighter gray background */
+    }
+
+    /* Animation for cards */
+    .card-stat {
+      /* Start hidden */
+      opacity: 0;
+      transform: translateY(20px);
+      /* Define animation */
+      animation: fadeInUp 0.5s ease-out forwards;
+    }
+
+    /* Keyframes for the animation */
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* Stagger the animation for each card */
+    .card-stat:nth-child(1) { animation-delay: 0.1s; }
+    .card-stat:nth-child(2) { animation-delay: 0.2s; }
+    .card-stat:nth-child(3) { animation-delay: 0.3s; }
+    .card-stat:nth-child(4) { animation-delay: 0.4s; }
+
+    /* Custom modal styles */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(15, 23, 42, 0.55);
+      z-index: 50;
+      opacity: 0;
+      transition: opacity 0.25s ease-in-out;
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.96);
+      z-index: 60;
+      opacity: 0;
+      width: 100%;
+      max-width: 28rem; /* Tailwind max-w-md */
+      border-radius: 0.75rem;
+      box-shadow: 0 25px 50px -12px rgba(30, 41, 59, 0.35), 0 10px 15px -3px rgba(15, 23, 42, 0.25);
+      transition: opacity 0.25s ease-in-out, transform 0.25s ease-in-out;
+    }
+    .modal.show {
+      display: block;
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    .modal-backdrop.show {
+      display: block;
+      opacity: 1;
+    }
+
+    /* Style for action buttons for better text alignment */
+    .action-button {
+      min-height: 100px; /* Ensure all buttons have same height */
+    }
+
+    /* Spinner animation */
+    .spinner-modal {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 60; /* Higher than modal backdrop */
+      background-color: white;
+      border-radius: 0.5rem;
+      padding: 2rem;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      text-align: center;
+      opacity: 0;
+      transition: opacity 0.3s ease-in-out;
+    }
+    .spinner-modal.show {
+      display: block;
+      opacity: 1;
+    }
+    .spinner-backdrop {
+       display: none;
+       position: fixed;
+       top: 0;
+       left: 0;
+       right: 0;
+       bottom: 0;
+       background-color: rgba(0, 0, 0, 0.25); /* Lighter backdrop for spinner */
+       z-index: 59;
+       opacity: 0;
+       transition: opacity 0.3s ease-in-out;
+    }
+    .spinner-backdrop.show {
+       display: block;
+       opacity: 1;
+    }
+
+     /* --- Added Style for Expiring Table --- */
+     #expiringCocTable thead th {
+        position: sticky;
+        top: 0;
+        background-color: #f9fafb; /* Slightly different bg for sticky header */
+        z-index: 10;
+     }
+     /* --- End Style --- */
+
+  </style>
+</head>
+<body class="p-4 md:p-6">
+
+  <h4 class="text-2xl font-semibold text-gray-800 mb-5"><i class="bi bi-speedometer2"></i> Dashboard</h4>
+
+  <!-- Stats Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-4" id="statsContainer">
+
+    <!-- Card 1: Employees -->
+    <div class="card-stat group bg-white p-5 rounded-xl shadow-md transition-all duration-300 hover:shadow-lg hover:scale-[1.03] hover:bg-blue-50 cursor-pointer" onclick="navigateTo('EmployeeManager', 'Employee Manager')"> <!-- Updated onclick -->
+      <div class="flex justify-between items-center">
+        <div>
+          <p class="text-sm font-medium text-gray-500 uppercase">Employees</p>
+          <h5 id="empCount" class="text-3xl font-bold text-gray-800">0</h5>
+          <span id="empNew" class="text-xs text-green-500 font-medium">+0 today</span>
+        </div>
+        <div class="text-4xl text-blue-500 opacity-80 transition-all duration-300 group-hover:text-blue-600">
+          <i class="bi bi-people"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 2: Active COC -->
+    <div class="card-stat group bg-white p-5 rounded-xl shadow-md transition-all duration-300 hover:shadow-lg hover:scale-[1.03] hover:bg-green-50 cursor-pointer" onclick="navigateTo('MonthlyCOCEntry', 'Monthly COC')"> <!-- Updated onclick -->
+      <div class="flex justify-between items-center">
+        <div>
+          <p class="text-sm font-medium text-gray-500 uppercase">Active COC Records</p> <!-- Updated text -->
+          <h5 id="cocCount" class="text-3xl font-bold text-gray-800">0</h5>
+          <span id="cocNew" class="text-xs text-green-500 font-medium">+0 new</span>
+        </div>
+        <div class="text-4xl text-green-500 opacity-80 transition-all duration-300 group-hover:text-green-600">
+          <i class="bi bi-clock-history"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 3: CTO Applications -->
+    <div class="card-stat group bg-white p-5 rounded-xl shadow-md transition-all duration-300 hover:shadow-lg hover:scale-[1.03] hover:bg-cyan-50 cursor-pointer" onclick="navigateTo('CTOApplicationsManager', 'CTO Manager')"> <!-- Updated onclick -->
+      <div class="flex justify-between items-center">
+        <div>
+          <p class="text-sm font-medium text-gray-500 uppercase">CTO Apps</p>
+          <h5 id="ctoCount" class="text-3xl font-bold text-gray-800">0</h5>
+          <span id="ctoNew" class="text-xs text-blue-500 font-medium">+0 pending</span>
+        </div>
+        <div class="text-4xl text-cyan-500 opacity-80 transition-all duration-300 group-hover:text-cyan-600">
+          <i class="bi bi-card-checklist"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 4: Expiring COC -->
+    <div class="card-stat group bg-white p-5 rounded-xl shadow-md transition-all duration-300 hover:shadow-lg hover:scale-[1.03] hover:bg-yellow-50 cursor-pointer" onclick="scrollToExpiring()"> <!-- Updated onclick -->
+      <div class="flex justify-between items-center">
+        <div>
+          <p class="text-sm font-medium text-gray-500 uppercase">Expiring Hours (30d)</p> <!-- Updated text -->
+          <h5 id="expCount" class="text-3xl font-bold text-red-600">0.00</h5> <!-- Display hours -->
+          <span id="expNew" class="text-xs text-red-500 font-medium">Needs action</span>
+        </div>
+        <div class="text-4xl text-yellow-500 opacity-80 transition-all duration-300 group-hover:text-yellow-600">
+          <i class="bi bi-exclamation-triangle"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Last Updated timestamp -->
+  <div class="text-end text-sm text-gray-500 mb-5" id="lastUpdated">Loading...</div>
+
+  <!-- Quick Actions Section -->
+  <div class="mb-5">
+    <h5 class="text-lg font-semibold text-gray-800 mb-3"><i class="bi bi-lightning-charge-fill"></i> Quick Actions</h5>
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+
+      <!-- Button 1: Monthly COC Entry -->
+      <a onclick="navigateTo('MonthlyCOCEntry', 'Monthly COC')" class="action-button bg-white p-4 rounded-xl shadow-md transition-all duration-300 hover:shadow-lg hover:bg-gray-100 cursor-pointer flex flex-col items-center justify-center text-center">
+          <div class="text-3xl text-blue-600 mb-2"><i class="bi bi-calendar-plus"></i></div>
+          <span class="text-sm font-medium text-gray-700">Record COC Earned</span>
+      </a>
+
+      <!-- Button 2: CTO Application -->
+      <a onclick="navigateTo('CTORecordForm', 'CTO Application')" class="action-button bg-white p-4 rounded-xl shadow-md transition-all duration-300 hover:shadow-lg hover:bg-gray-100 cursor-pointer flex flex-col items-center justify-center text-center">
+          <div class="text-3xl text-green-600 mb-2"><i class="bi bi-calendar-check"></i></div>
+          <span class="text-sm font-medium text-gray-700">CTO Application</span>
+      </a>
+
+      <!-- Button 3: Employee Ledger -->
+      <a onclick="navigateTo('EmployeeLedger', 'Employee Ledger')" class="action-button bg-white p-4 rounded-xl shadow-md transition-all duration-300 hover:shadow-lg hover:bg-gray-100 cursor-pointer flex flex-col items-center justify-center text-center">
+          <div class="text-3xl text-purple-600 mb-2"><i class="bi bi-book"></i></div>
+          <span class="text-sm font-medium text-gray-700">Employee Ledger</span>
+      </a>
+
+      <!-- Button 4: Employee Manager -->
+      <a onclick="navigateTo('EmployeeManager', 'Employee Manager')" class="action-button bg-white p-4 rounded-xl shadow-md transition-all duration-300 hover:shadow-lg hover:bg-gray-100 cursor-pointer flex flex-col items-center justify-center text-center">
+          <div class="text-3xl text-indigo-600 mb-2"><i class="bi bi-person-lines-fill"></i></div>
+          <span class="text-sm font-medium text-gray-700">Employee Manager</span>
+      </a>
+
+      <!-- Button 5: Reports -->
+      <a onclick="navigateTo('Reports', 'Reports')" class="action-button bg-white p-4 rounded-xl shadow-md transition-all duration-300 hover:shadow-lg hover:bg-gray-100 cursor-pointer flex flex-col items-center justify-center text-center">
+          <div class="text-3xl text-red-600 mb-2"><i class="bi bi-file-earmark-bar-graph"></i></div>
+          <span class="text-sm font-medium text-gray-700">Reports</span>
+      </a>
+
+      <!-- Button 6: Holiday Manager -->
+      <a onclick="navigateTo('HolidayManager', 'Holiday Manager')" class="action-button bg-white p-4 rounded-xl shadow-md transition-all duration-300 hover:shadow-lg hover:bg-gray-100 cursor-pointer flex flex-col items-center justify-center text-center">
+          <div class="text-3xl text-yellow-600 mb-2"><i class="bi bi-calendar3-event"></i></div>
+          <span class="text-sm font-medium text-gray-700">Holiday Manager</span>
+      </a>
+    </div>
+  </div>
+  <!-- END: Quick Actions Section -->
+
+
+  <!-- Recent Activity -->
+  <div class="bg-white rounded-xl shadow-md p-5 mb-6"> <!-- Added mb-6 -->
+    <div class="text-lg font-semibold text-gray-800 mb-4 pb-3 border-b border-gray-200">
+      <i class="bi bi-activity"></i> Recent Activity
+    </div>
+    <div class="overflow-x-auto" style="max-height: 350px; overflow-y: auto;">
+      <table class="w-full min-w-full text-sm text-left text-gray-700">
+        <thead class="text-xs text-gray-600 uppercase bg-gray-50 sticky top-0">
+          <tr>
+            <th scope="col" class="py-3 px-4 font-medium">Date</th>
+            <th scope="col" class="py-3 px-4 font-medium">Employee</th>
+            <th scope="col" class="py-3 px-4 font-medium">Type</th>
+            <th scope="col" class="py-3 px-4 font-medium">Reference</th>
+            <th scope="col" class="py-3 px-4 font-medium">Remarks</th>
+          </tr>
+        </thead>
+        <tbody id="recentBody" class="divide-y divide-gray-200">
+          <!-- rows inserted dynamically -->
+          <tr><td colspan="5" class="py-4 px-4 text-center text-gray-500">Loading activity...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+   <!-- *** NEW: Expiring COC Section *** -->
+   <div id="expiringCocSection" class="bg-white rounded-xl shadow-md p-5">
+      <div class="text-lg font-semibold text-red-700 mb-4 pb-3 border-b border-red-200 flex items-center gap-2">
+         <i class="bi bi-hourglass-bottom"></i> COC Expiring Within 30 Days
+      </div>
+      <div class="overflow-x-auto" style="max-height: 300px; overflow-y: auto;">
+         <table id="expiringCocTable" class="w-full min-w-full text-sm text-left text-gray-700">
+            <thead class="text-xs text-gray-600 uppercase bg-gray-50">
+               <tr>
+                  <th scope="col" class="py-3 px-4 font-medium">Employee</th>
+                  <th scope="col" class="py-3 px-4 font-medium text-right">Hours Expiring</th>
+                  <th scope="col" class="py-3 px-4 font-medium">Earliest Expiry</th>
+               </tr>
+            </thead>
+            <tbody id="expiringCocBody" class="divide-y divide-gray-200">
+               <!-- Placeholder row -->
+               <tr>
+                  <td colspan="3" class="py-4 px-4 text-center text-gray-500" id="expiringCocLoading">
+                     Loading expiring COC data...
+                  </td>
+               </tr>
+            </tbody>
+         </table>
+      </div>
+   </div>
+   <!-- *** END: Expiring COC Section *** -->
+
+
+  <!-- Modal backdrop -->
+  <div id="modalBackdrop" class="modal-backdrop"></div>
+
+  <!-- Modal for messages -->
+  <div id="responseModal" class="modal w-full max-w-md bg-white rounded-lg shadow-xl">
+    <!-- Modal Header -->
+    <div id="modalHeader" class="flex justify-between items-center p-4 border-b rounded-t-lg">
+      <h5 class="modal-title text-lg font-semibold text-white" id="modalTitle">Result</h5>
+      <button type="button" class="text-white text-2xl" onclick="closeModal()">
+        &times;
+      </button>
+    </div>
+    <!-- Modal Body -->
+    <div class="modal-body p-5 text-gray-700" id="modalBody"></div>
+    <!-- Modal Footer -->
+    <div class="modal-footer flex justify-end p-4 bg-gray-50 border-t rounded-b-lg">
+      <button class="px-5 py-2 bg-blue-600 text-white rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2" onclick="closeModal()">
+        OK
+      </button>
+    </div>
+  </div>
+
+  <!-- Spinner Modal -->
+  <div id="spinnerBackdrop" class="spinner-backdrop"></div>
+  <div id="spinnerModal" class="spinner-modal">
+      <div class="flex items-center justify-center">
+          <div class="text-4xl text-blue-600 animate-spin">
+              <i class="bi bi-arrow-repeat"></i>
+          </div>
+          <div id="spinnerMessage" class="ml-4 text-lg font-medium text-gray-700">Loading...</div>
+      </div>
+  </div>
+  <!-- END: Spinner Modal -->
+
+
+  <!-- jQuery -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+  <script>
+    const modal = document.getElementById('responseModal');
+    const modalBackdrop = document.getElementById('modalBackdrop');
+    const spinnerModal = document.getElementById('spinnerModal');
+    const spinnerBackdrop = document.getElementById('spinnerBackdrop');
+    const spinnerMessage = document.getElementById('spinnerMessage');
+
+    // Display modal messages
+    function showModal(title, message, type) {
+      $('#modalTitle').text(title);
+      $('#modalBody').html(message.replace(/\n/g, '<br>'));
+
+      const header = $('#modalHeader');
+      header.removeClass('bg-green-600 bg-red-600 bg-yellow-500 bg-blue-600 bg-indigo-600 bg-orange-500');
+
+      if (type === 'success') header.addClass('bg-green-600');
+      else if (type === 'danger') header.addClass('bg-red-600');
+      else if (type === 'warning') header.addClass('bg-yellow-500');
+      else header.addClass('bg-blue-600'); // Default
+
+      modal.classList.add('show');
+      modalBackdrop.classList.add('show');
+    }
+
+    // Close modal
+    function closeModal() {
+      modal.classList.remove('show');
+      modalBackdrop.classList.remove('show');
+    }
+
+    // Spinner functions
+    function showSpinner(message = 'Loading...') {
+      spinnerMessage.textContent = message;
+      spinnerModal.classList.add('show');
+      spinnerBackdrop.classList.add('show');
+    }
+
+    function hideSpinner() {
+      spinnerModal.classList.remove('show');
+      spinnerBackdrop.classList.remove('show');
+    }
+
+    // Navigation function override for layout script
+    window.__navigateToOverride = function(pageName, displayName) {
+      const nameToShow = displayName || pageName;
+      showSpinner('Opening ' + nameToShow + '...');
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(() => google.script.host.close())
+          .withFailureHandler(err => {
+            hideSpinner();
+            showModal('Navigation Error', 'Could not load page: ' + nameToShow + '<br>' + err.message, 'danger');
+          })
+          .navigateToPage(pageName);
+      } else {
+        console.log('navigateTo', pageName);
+        hideSpinner();
+      }
+    };
+
+     // --- NEW Function: Scroll to Expiring Section ---
+     function scrollToExpiring() {
+         const section = document.getElementById('expiringCocSection');
+         if (section) {
+             section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+         }
+     }
+     // --- END NEW Function ---
+
+    // Load dashboard data (stats, recent activity, expiring COC)
+    function loadDashboard() {
+      showSpinner('Loading Dashboard Data...'); // Show spinner
+
+      // Promise for Stats
+      const statsPromise = new Promise((resolve, reject) => {
+        google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler(reject)
+          .apiGetDashboardStats();
+      });
+
+      // Promise for Recent Activity
+      const activityPromise = new Promise((resolve, reject) => {
+        google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler(reject)
+          .apiGetRecentActivities(15); // Increased limit to 15
+      });
+
+      // --- NEW Promise for Expiring COC ---
+      const expiringPromise = new Promise((resolve, reject) => {
+          google.script.run
+              .withSuccessHandler(resolve)
+              .withFailureHandler(reject)
+              .apiGetEmployeesWithExpiringCOC(); // Call the new backend function
+      });
+      // --- END NEW Promise ---
+
+      // Wait for all data to load
+      Promise.all([statsPromise, activityPromise, expiringPromise]) // Added expiringPromise
+        .then(([stats, activityList, expiringList]) => { // Added expiringList
+          // --- Populate Stats ---
+          $('#empCount').text(stats.employees || 0);
+          $('#cocCount').text(stats.activeCOC || 0);
+          $('#ctoCount').text(stats.ctoApplications || 0);
+          
+          
+          const expiringArray = Array.isArray(expiringList) ? expiringList : [];
+          let expiringHours = parseFloat(stats.expiringSoon || 0) || 0;
+          if (expiringArray.length > 0) {
+            const computedTotal = expiringArray.reduce((sum, item) => {
+              const hours = parseFloat(item.totalHoursExpiring);
+              return sum + (isNaN(hours) ? 0 : hours);
+            }, 0);
+            expiringHours = computedTotal;
+          }
+          $('#expCount').text(expiringHours.toFixed(2)); // Display hours with 2 decimals
+
+          $('#empNew').text(`+${stats.newEmployees || 0} today`);
+          $('#cocNew').text(`+${stats.newCOC || 0} new`);
+          $('#ctoNew').text(`${stats.pendingCTO || 0} pending`);
+
+           if (expiringHours > 0) {
+            $('#expCount').addClass('text-red-600').removeClass('text-gray-800');
+            $('#expNew').addClass('text-red-500').removeClass('text-green-500').text('Needs action!'); // Update text
+          } else {
+            $('#expCount').addClass('text-gray-800').removeClass('text-red-600');
+            $('#expNew').text('All good').addClass('text-green-500').removeClass('text-red-500');
+          }
+
+          // --- Populate Recent Activity ---
+          const tbody = $('#recentBody');
+          tbody.empty();
+          if (!activityList || activityList.length === 0) {
+            tbody.append('<tr><td colspan="5" class="py-4 px-4 text-center text-gray-500">No recent activity</td></tr>');
+          } else {
+            activityList.forEach(item => {
+              const tr = $('<tr class="hover:bg-gray-50">');
+              tr.append('<td class="py-3 px-4">' + (item.transactionDate || 'N/A') + '</td>');
+              tr.append('<td class="py-3 px-4 font-medium text-gray-800">' + (item.employeeName || 'N/A') + '</td>');
+
+              let badgeClass = 'bg-gray-200 text-gray-800';
+              const type = item.transactionType || '';
+              if (type === 'COC Earned') badgeClass = 'bg-green-100 text-green-800';
+              else if (type === 'CTO Used' || type === 'CTO Used (FIFO)') badgeClass = 'bg-red-100 text-red-800';
+              else if (type === 'Initial Balance') badgeClass = 'bg-blue-100 text-blue-800';
+              else if (type === 'CTO Updated') badgeClass = 'bg-indigo-100 text-indigo-800';
+              else if (type.startsWith('CTO Cancelled') || type === 'COC Cancelled' || type === 'COC Expired') badgeClass = 'bg-orange-100 text-orange-800';
+
+              tr.append('<td class="py-3 px-4"><span class="text-xs font-medium px-2.5 py-0.5 rounded-full ' + badgeClass + '">' + (type || 'N/A') + '</span></td>');
+              tr.append('<td class="py-3 px-4 text-xs font-mono">' + (item.referenceId || '') + '</td>'); // Smaller font for ID
+              tr.append('<td class="py-3 px-4 text-gray-600 text-xs">' + (item.remarks || '') + '</td>'); // Smaller font for remarks
+              tbody.append(tr);
+            });
+          }
+
+           // --- NEW: Populate Expiring COC Table ---
+           const expiringBody = $('#expiringCocBody');
+           const expiringLoading = $('#expiringCocLoading').parent(); // Get the table row (TR)
+           expiringBody.empty(); // Clear previous content
+
+           if (expiringArray.length === 0) {
+                expiringBody.append('<tr><td colspan="3" class="py-4 px-4 text-center text-gray-500">No COC expiring in the next 30 days.</td></tr>');
+           } else {
+                expiringArray.forEach(item => {
+                    const hours = parseFloat(item.totalHoursExpiring || 0).toFixed(2);
+                    const row = `
+                        <tr class="hover:bg-red-50">
+                            <td class="py-3 px-4 font-medium text-gray-800">${item.employeeName || 'N/A'}</td>
+                            <td class="py-3 px-4 font-semibold text-red-600 text-right">${hours} hrs</td>
+                            <td class="py-3 px-4 text-gray-600">${item.earliestExpiryDate || 'N/A'}</td>
+                        </tr>
+                    `;
+                    expiringBody.append(row);
+                });
+           }
+           // --- END NEW: Populate Expiring COC Table ---
+
+
+          // Update timestamp and hide spinner
+          const now = new Date();
+          document.getElementById('lastUpdated').textContent = 'Last updated: ' + now.toLocaleString();
+          hideSpinner(); // Hide spinner on success
+
+        })
+        .catch(err => {
+          // Handle errors from any of the promises
+          showModal('Error Loading Dashboard', err.message || 'An unknown error occurred', 'danger');
+          hideSpinner(); // Hide spinner on error
+          // Optionally clear parts of the UI or show error messages
+          $('#recentBody').html('<tr><td colspan="5" class="py-4 px-4 text-center text-red-500">Failed to load activity</td></tr>');
+          $('#expiringCocBody').html('<tr><td colspan="3" class="py-4 px-4 text-center text-red-500">Failed to load expiring COC data</td></tr>');
+        });
+    }
+
+    // Initial load - waits for google.script.run
+    function startAppWhenReady() {
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        loadDashboard();
+      } else {
+        setTimeout(startAppWhenReady, 100);
+      }
+    }
+    startAppWhenReady();
+
+    // Navigation function
+    window.navigateTo = function(pageName, displayName) {
+      if (!pageName) return false;
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run.navigateToPage(pageName);
+      } else {
+        // Fallback for local testing
+        const pageMap = {
+          'EmployeeManager': 'employee_manager.html',
+          'MonthlyCOCEntry': 'coc_entry_no_sidebar.html',
+          'CTOApplicationsManager': 'cto_applications.html',
+          'CTORecordForm': 'cto_record_form.html',
+          'EmployeeLedger': 'employee_ledger.html',
+          'Reports': 'reports.html',
+          'HolidayManager': 'holiday_manager.html',
+          'Dashboard': 'dashboard_no_sidebar.html'
+        };
+        const targetPage = pageMap[pageName] || 'dashboard_no_sidebar.html';
+        window.location.href = targetPage;
+      }
+      return false;
+    };
+
+  </script>
+
+</body>
+</html>
