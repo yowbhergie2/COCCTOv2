@@ -1,0 +1,168 @@
+// =============================================================================
+// Code.gs - Configuration and Entry Point
+// =============================================================================
+// 
+// UPDATED: 2025-10-28
+// PURPOSE: Fixed EMP_COLS mapping and removed Historical Import menu
+//
+// =============================================================================
+
+const DATABASE_ID = '1LIQRnQb7lL-6hdSpsOwq-XVwRM6Go6u4q6RkSB2ZCXo';
+
+// COC_Balance_Detail sheet column mapping (18 columns)
+const DETAIL_COLS = {
+  ENTRY_ID: 0,            // Entry ID
+  EMPLOYEE_ID: 1,         // Employee ID
+  EMPLOYEE_NAME: 2,       // Employee Name
+  CERTIFICATE_ID: 3,      // Certificate ID (links to monthly certificate)
+  RECORD_ID: 4,           // Record ID (from COC_Records)
+  MONTH_YEAR: 5,          // Month-Year (e.g., "2025-10")
+  DATE_EARNED: 6,         // Date Rendered/Earned
+  DAY_TYPE: 7,            // Day Type (Weekday, Weekend, Regular Holiday, etc.)
+  HOURS_EARNED: 8,        // Hours Earned
+  HOURS_USED: 9,          // Hours Used (for FIFO tracking)
+  HOURS_REMAINING: 10,    // Hours Remaining
+  CERTIFICATE_ISSUE_DATE: 11, // Certificate Issue Date (when certificate was issued)
+  EXPIRATION_DATE: 12,    // Expiration Date (Certificate Issue Date + 1 year - 1 day)
+  STATUS: 13,             // Status (Active, Used, Expired, Cancelled)
+  DATE_CREATED: 14,       // Date Created
+  CREATED_BY: 15,         // Created By
+  LAST_UPDATED: 16,       // Last Updated
+  NOTES: 17               // Notes/Remarks
+};
+
+// COC_Records sheet column mapping (22 columns)
+const RECORD_COLS = {
+  RECORD_ID: 0,           // Record ID (unique identifier)
+  EMPLOYEE_ID: 1,         // Employee ID
+  EMPLOYEE_NAME: 2,       // Employee Name
+  MONTH_YEAR: 3,          // Month-Year (e.g., "2025-10")
+  DATE_RENDERED: 4,       // Date Rendered (date COC was earned)
+  DAY_TYPE: 5,            // Day Type (Weekday, Weekend, Holiday, etc.)
+  AM_IN: 6,               // AM In time
+  AM_OUT: 7,              // AM Out time
+  PM_IN: 8,               // PM In time
+  PM_OUT: 9,              // PM Out time
+  HOURS_WORKED: 10,       // Hours Worked
+  MULTIPLIER: 11,         // Multiplier (based on day type)
+  COC_EARNED: 12,         // COC Earned (hours)
+  CERTIFICATE_ID: 13,     // Certificate ID (linked to COC_Certificates)
+  DATE_RECORDED: 14,      // Date Recorded
+  EXPIRATION_DATE: 15,    // Expiration Date
+  STATUS: 16,             // Status (Pending, Active, Used, Expired, Cancelled)
+  APPROVED_BY: 17,        // Approved By
+  APPROVED_DATE: 18,      // Approved Date
+  CREATED_BY: 19,         // Created By
+  LAST_MODIFIED: 20,      // Last Modified
+  MODIFIED_BY: 21         // Modified By
+};
+
+// COC_Certificates sheet column mapping (13 columns)
+const CERT_COLS = {
+  CERTIFICATE_ID: 0,      // Certificate ID (unique identifier)
+  EMPLOYEE_ID: 1,         // Employee ID
+  EMPLOYEE_NAME: 2,       // Employee Name
+  MONTH_YEAR: 3,          // Month-Year (e.g., "2025-10")
+  TOTAL_COC_EARNED: 4,    // Total COC Earned (hours)
+  NUMBER_OF_RECORDS: 5,   // Number of Records (count)
+  ISSUE_DATE: 6,          // Issue Date
+  EXPIRATION_DATE: 7,     // Expiration Date
+  CERTIFICATE_URL: 8,     // Certificate URL (Google Doc)
+  PDF_URL: 9,             // PDF URL (exported PDF)
+  STATUS: 10,             // Status (Active, Cancelled, etc.)
+  CREATED_DATE: 11,       // Created Date
+  CREATED_BY: 12          // Created By
+};
+
+// =============================================================================
+// ✅ FIXED: Employees sheet column mapping (8 columns) - CORRECTED ORDER
+// =============================================================================
+// BEFORE (WRONG):
+//   FIRST_NAME: 1  ← Column B was actually LAST_NAME
+//   LAST_NAME: 3   ← Column D was actually MIDDLE_INITIAL
+//
+// AFTER (CORRECT):
+//   LAST_NAME: 1   ← Column B is LAST_NAME ✅
+//   FIRST_NAME: 2  ← Column C is FIRST_NAME ✅
+// =============================================================================
+const EMP_COLS = {
+  EMPLOYEE_ID: 0,         // Column A: Employee ID
+  LAST_NAME: 1,           // Column B: Last Name ✅ FIXED
+  FIRST_NAME: 2,          // Column C: First Name ✅ FIXED
+  MIDDLE_INITIAL: 3,      // Column D: Middle Initial ✅ FIXED
+  SUFFIX: 4,              // Column E: Suffix
+  POSITION: 5,            // Column F: Position
+  OFFICE: 6,              // Column G: Office/Division
+  STATUS: 7               // Column H: Status (Active, Inactive, etc.)
+  // ❌ REMOVED: Email (was H), InitialBalance (was J), InitialBalanceDate (was K)
+};
+
+// COC_Ledger sheet column mapping
+const LEDGER_COLS = {
+  LEDGER_ID: 0,           // Ledger ID (unique identifier)
+  EMPLOYEE_ID: 1,         // Employee ID
+  EMPLOYEE_NAME: 2,       // Employee Name
+  TRANSACTION_DATE: 3,    // Transaction Date
+  TRANSACTION_TYPE: 4,    // Transaction Type (Earned, Used, Expired, Adjusted)
+  REFERENCE_ID: 5,        // Reference ID (Certificate ID, CTO ID, etc.)
+  BALANCE_BEFORE: 6,      // Balance Before
+  COC_EARNED: 7,          // COC Earned (hours)
+  CTO_USED: 8,            // CTO Used (hours)
+  COC_EXPIRED: 9,         // COC Expired (hours)
+  BALANCE_ADJUSTMENT: 10, // Balance Adjustment (hours)
+  BALANCE_AFTER: 11,      // Balance After
+  MONTH_YEAR_EARNED: 12,  // Month-Year Earned (e.g., "2025-10")
+  EXPIRATION_DATE: 13,    // Expiration Date
+  PROCESSED_BY: 14,       // Processed By
+  PROCESSED_DATE: 15,     // Processed Date
+  REMARKS: 16,            // Remarks/Notes
+  DURATION: 17,           // Duration (for CTO applications)
+  CERTIFICATE_URL: 18     // Certificate URL (for reference)
+};
+
+// Status constants
+const STATUS_PENDING = 'Pending';
+const STATUS_ACTIVE = 'Active';
+const STATUS_USED = 'Used';
+const STATUS_EXPIRED = 'Expired';
+const STATUS_CANCELLED = 'Cancelled';
+const STATUS_DEPLETED = 'Depleted';
+
+// Transaction type constants
+const TR_TYPE_EARNED = 'COC Earned';
+const TR_TYPE_USED = 'CTO Used';
+const TR_TYPE_EXPIRED = 'COC Expired';
+const TR_TYPE_ADJUSTED = 'Balance Adjusted';
+const TR_TYPE_INITIAL = 'Initial Balance';
+const TR_TYPE_CANCELLED = 'CTO Cancelled';
+const TR_TYPE_UPDATED = 'CTO Updated';
+
+// =============================================================================
+// Main Entry Point
+// =============================================================================
+
+/**
+ * Creates the main menu when the spreadsheet opens
+ * 
+ * UPDATED: Removed "Import Historical Data" menu item
+ * UPDATED: Removed "Run Data Migration" from Admin Tools
+ */
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('COC/CTO System')
+    .addItem('Dashboard', 'showDashboard')
+    .addSeparator()
+    .addItem('Record COC Earned', 'showMonthlyCOCEntry')
+    .addItem('Record CTO Application', 'showCTORecordForm')
+    .addItem('CTO Applications Manager', 'showCTOApplicationsManager')
+    .addSeparator()
+    .addItem('Employee Ledger', 'showEmployeeLedger')
+    .addItem('Employee Manager', 'showEmployeeManager')  // ← Historical import now integrated here
+    .addItem('Holiday Manager', 'showHolidayManager')
+    .addSeparator()
+    .addItem('Settings', 'showSettings')
+    .addItem('Reports', 'showReports')
+    // ❌ REMOVED: 'Import', 'showHistoricalimport'
+    // ❌ REMOVED: Admin Tools > 'Run Data Migration (MONTH_YEAR)'
+    .addToUi();
+}
