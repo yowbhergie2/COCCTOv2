@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CTO Applications Manager</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    window.CURRENT_PAGE = 'cto-applications';
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Select2 CSS -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.1.0/css/select2.min.css" rel="stylesheet" />
+  
+  <!-- Bootstrap Icons -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.0/font/bootstrap-icons.min.css" rel="stylesheet" />
+  
+  <style>
+    body {
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .spinner {
+      display: inline-block;
+      width: 1rem;
+      height: 1rem;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 1s ease-in-out infinite;
+    }
+
+    .select2-container .select2-selection--single {
+      height: 42px !important;
+      border: 1px solid #d1d5db !important;
+      border-radius: 0.5rem !important;
+      padding: 0.5rem 0.75rem !important;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+      height: 40px !important;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__rendered {
+      line-height: 24px !important;
+    }
+    .select2-dropdown {
+      border: 1px solid #d1d5db !important;
+      border-radius: 0.5rem !important;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.025em;
+    }
+    
+    /* MODIFICATION: Updated status colors to be more distinct */
+    .status-Approved { background-color: #d1fae5; color: #065f46; } /* Green */
+    .status-Cancelled { background-color: #fee2e2; color: #991b1b; } /* Red */
+    .status-Pending { background-color: #fef3c7; color: #92400e; } /* Yellow */
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 p-4 md:p-6">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6">
+    <h4 class="flex items-center gap-3 text-2xl font-bold text-gray-800">
+      <i class="bi bi-calendar-check text-blue-600"></i>
+      <span>CTO Applications Manager</span>
+    </h4>
+    <button type="button" class="px-4 py-2 bg-gray-600 text-white font-medium rounded-md shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors" onclick="backToDashboard()">
+      <i class="bi bi-arrow-left-circle"></i> Back to Dashboard
+    </button>
+  </div>
+
+  <!-- Filter Section -->
+  <div class="bg-white p-6 rounded-xl shadow-sm mb-6">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      
+      <!-- Employee Filter -->
+      <div>
+        <label for="filterEmployee" class="block text-sm font-medium text-gray-700 mb-2">
+          Filter by Employee
+        </label>
+        <select id="filterEmployee" class="w-full">
+          <option value="">All Employees</option>
+        </select>
+      </div>
+
+      <!-- Date From -->
+      <div>
+        <label for="filterDateFrom" class="block text-sm font-medium text-gray-700 mb-2">
+          From Date (Applied)
+        </label>
+        <input type="date" id="filterDateFrom" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+      </div>
+
+      <!-- Date To -->
+      <div>
+        <label for="filterDateTo" class="block text-sm font-medium text-gray-700 mb-2">
+          To Date (Applied)
+        </label>
+        <input type="date" id="filterDateTo" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+      </div>
+
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="flex gap-3 mt-4">
+      <button type="button" id="applyFilterBtn" class="flex items-center gap-2 bg-blue-600 text-white px-6 py-2.5 rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <i class="bi bi-funnel"></i>
+        <span>Apply Filters</span>
+        <span id="filterSpinner" class="spinner hidden"></span>
+      </button>
+      <button type="button" id="clearFilterBtn" class="flex items-center gap-2 bg-gray-500 text-white px-6 py-2.5 rounded-lg shadow-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400">
+        <i class="bi bi-x-circle"></i>
+        <span>Clear Filters</span>
+      </button>
+      <button type="button" id="refreshBtn" class="flex items-center gap-2 bg-green-600 text-white px-6 py-2.5 rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500">
+        <i class="bi bi-arrow-clockwise"></i>
+        <span>Refresh</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Applications Table -->
+  <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+    <div class="p-6 border-b border-gray-200">
+      <div class="flex items-center justify-between">
+        <div>
+          <h3 class="text-lg font-semibold text-gray-800">CTO Applications</h3>
+          <p class="text-sm text-gray-600 mt-1">View and manage compensatory time-off applications</p>
+        </div>
+        <div class="text-sm text-gray-600">
+          Total: <span id="totalCount" class="font-semibold">0</span> applications
+        </div>
+      </div>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Application ID</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hours</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CTO Period</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Applied Date</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="applicationsTableBody" class="bg-white divide-y divide-gray-200">
+          <!-- Data will be loaded here -->
+        </tbody>
+        <tbody id="applicationsTableEmpty" class="bg-white">
+          <tr>
+            <td colspan="7" class="px-6 py-12 text-center text-gray-500">
+              <i class="bi bi-inbox text-4xl mb-2 block"></i>
+              <p class="text-lg">No CTO applications found</p>
+              <p class="text-sm mt-1">Try adjusting your filters or refresh the data</p>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- View Details Modal -->
+  <div id="viewModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 hidden">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between p-4 bg-blue-600 rounded-t-lg sticky top-0">
+        <h5 class="text-lg font-semibold text-white">Application Details</h5>
+        <button type="button" id="viewModalClose" class="text-white hover:text-gray-200">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+      <div id="viewModalBody" class="p-6 text-gray-700"></div>
+      <div class="p-4 bg-gray-50 rounded-b-lg flex justify-end sticky bottom-0">
+        <button type="button" id="viewModalOK" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Modal -->
+  <div id="editModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 hidden">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between p-4 bg-yellow-500 rounded-t-lg sticky top-0">
+        <h5 class="text-lg font-semibold text-gray-800">Edit CTO Application</h5>
+        <button type="button" id="editModalClose" class="text-gray-800 hover:text-black">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+      <div class="p-6 space-y-4">
+        <input type="hidden" id="editAppId">
+        
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Employee</label>
+          <input type="text" id="editEmployeeName" readonly class="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg">
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Hours <span class="text-red-500">*</span></label>
+          <select id="editHours" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500">
+             <option value="4">4 hours</option>
+             <option value="8">8 hours</option>
+             <option value="12">12 hours</option>
+             <option value="16">16 hours</option>
+             <option value="20">20 hours</option>
+             <option value="24">24 hours</option>
+             <option value="28">28 hours</option>
+             <option value="32">32 hours</option>
+             <option value="36">36 hours</option>
+             <option value="40">40 hours</option>
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Start Date <span class="text-red-500">*</span></label>
+            <input type="date" id="editStartDate" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">End Date <span class="text-red-500">*</span></label>
+            <input type="date" id="editEndDate" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+          <textarea id="editRemarks" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"></textarea>
+        </div>
+      </div>
+      <div class="p-4 bg-gray-50 rounded-b-lg flex justify-end gap-3 sticky bottom-0">
+        <button type="button" id="editModalCancel" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300">Cancel</button>
+        <button type="button" id="editModalSave" class="bg-yellow-500 text-white px-4 py-2 rounded-lg hover:bg-yellow-600">
+          <span id="editSaveText">Save Changes</span>
+          <span id="editSaveSpinner" class="spinner hidden ml-2"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Cancel Modal -->
+  <div id="confirmModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 hidden">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+      <div class="flex items-center justify-between p-4 bg-red-600 rounded-t-lg">
+        <h5 id="confirmModalTitle" class="text-lg font-semibold text-white">Confirm Cancellation</h5>
+        <button type="button" id="confirmModalClose" class="text-white hover:text-gray-200">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+      <div id="confirmModalBody" class="p-6 text-gray-700"></div>
+      <div class="p-4 bg-gray-50 rounded-b-lg flex justify-end gap-3">
+        <button type="button" id="confirmModalCancel" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300">No, Keep It</button>
+        <button type="button" id="confirmModalOK" class="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700">Yes, Cancel CTO</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Response Modal -->
+  <div id="responseModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 hidden">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+      <div id="modalHeader" class="flex items-center justify-between p-4 rounded-t-lg">
+        <h5 id="modalTitle" class="text-lg font-semibold text-white">Message</h5>
+        <button type="button" id="responseModalClose" class="text-white hover:text-gray-200">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+      <div id="modalBody" class="p-6 text-gray-700"></div>
+      <div class="p-4 bg-gray-50 rounded-b-lg flex justify-end">
+        <button type="button" id="responseModalOK" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.1.0/js/select2.min.js"></script>
+  
+  <script>
+    let allApplications = [];
+    let filteredApplications = [];
+
+    window.onload = function() {
+      
+      // --- START: All application functions defined first ---
+
+      // Modal functions
+      function showModal(title, message, type) {
+        const modal = $('#responseModal');
+        const header = $('#modalHeader');
+        
+        $('#modalTitle').text(title);
+        $('#modalBody').html(message.replace(/\n/g, '<br>'));
+        
+        header.removeClass('bg-green-500 bg-red-500 bg-yellow-400 bg-blue-500');
+        if (type === 'success') header.addClass('bg-green-500');
+        else if (type === 'danger') header.addClass('bg-red-500');
+        else if (type === 'warning') header.addClass('bg-yellow-400');
+        else header.addClass('bg-blue-500');
+        
+        modal.removeClass('hidden');
+      }
+      
+      function showConfirm(title, message, callback) {
+        const modal = $('#confirmModal');
+        $('#confirmModalTitle').text(title);
+        $('#confirmModalBody').html(message.replace(/\n/g, '<br>'));
+        modal.removeClass('hidden');
+        
+        // --- MODIFICATION: Ensure callback is called correctly ---
+        $('#confirmModalOK').off('click').on('click', function() {
+          modal.addClass('hidden');
+          if (callback) callback(true); // Pass true for confirmation
+        });
+        $('#confirmModalCancel, #confirmModalClose').off('click').on('click', function() {
+          modal.addClass('hidden');
+          if (callback) callback(false); // Pass false for cancellation
+        });
+        // --- END MODIFICATION ---
+      }
+
+      // Load employees for filter
+      function loadEmployees() {
+        google.script.run
+          .withSuccessHandler(function(list) {
+            const sel = $('#filterEmployee');
+            sel.empty();
+            sel.append('<option value="">All Employees</option>');
+            list.forEach(function(emp) {
+              sel.append(`<option value="${emp.id}">${emp.fullName}</option>`);
+            });
+            sel.select2({ 
+              placeholder: 'All Employees', 
+              width: '100%',
+              allowClear: true
+            });
+          })
+          .withFailureHandler(function(err) {
+            showModal('Error', 'Failed to load employees: ' + (err.message || err), 'danger');
+          })
+          .apiListEmployees(true); // Get all employees (active and inactive)
+      }
+
+      // Load all CTO applications
+      function loadApplications() {
+        $('#filterSpinner').removeClass('hidden');
+        $('#applyFilterBtn').prop('disabled', true);
+
+        google.script.run
+          .withSuccessHandler(function(applications) {
+            allApplications = applications || [];
+            applyFilters(); // Apply default filters (which is none)
+            $('#filterSpinner').addClass('hidden');
+            $('#applyFilterBtn').prop('disabled', false);
+          })
+          .withFailureHandler(function(err) {
+            showModal('Error', 'Failed to load applications: ' + (err.message || err), 'danger');
+            $('#filterSpinner').addClass('hidden');
+            $('#applyFilterBtn').prop('disabled', false);
+          })
+          .apiGetAllCTOApplications(); // This function needs to be created in Code.gs
+      }
+
+      // Apply filters
+      function applyFilters() {
+        const empFilter = $('#filterEmployee').val();
+        const dateFrom = $('#filterDateFrom').val();
+        const dateTo = $('#filterDateTo').val();
+
+        filteredApplications = allApplications.filter(app => {
+          // Employee filter
+          if (empFilter && app.employeeId !== empFilter) return false;
+          
+          // Date filters (using appliedDate)
+          const appliedDate = app.appliedDate || '0000-00-00';
+          if (dateFrom && appliedDate < dateFrom) return false;
+          if (dateTo && appliedDate > dateTo) return false;
+          
+          return true;
+        });
+
+        renderApplications();
+      }
+
+      // Clear filters
+      function clearFilters() {
+        $('#filterEmployee').val('').trigger('change');
+        $('#filterDateFrom').val('');
+        $('#filterDateTo').val('');
+        applyFilters();
+      }
+
+      // Render applications table
+      function renderApplications() {
+        const tbody = $('#applicationsTableBody');
+        tbody.empty();
+
+        $('#totalCount').text(filteredApplications.length);
+
+        if (filteredApplications.length === 0) {
+          $('#applicationsTableEmpty').removeClass('hidden');
+          return;
+        }
+
+        $('#applicationsTableEmpty').addClass('hidden');
+
+        // Sort by applied date descending (newest first)
+        filteredApplications.sort((a, b) => (b.appliedDate || '').localeCompare(a.appliedDate || ''));
+
+        filteredApplications.forEach(app => {
+          const dateRange = app.startDate === app.endDate 
+            ? (app.startDate || 'N/A')
+            : `${app.startDate || 'N/A'} to ${app.endDate || 'N/A'}`;
+
+          // Use a class based on the status
+          let statusClass = `status-${app.status || 'Pending'}`;
+
+          // Determine if actions should be available
+          const canEdit = app.status !== 'Cancelled';
+          // --- MODIFICATION: Allow cancelling 'Approved' as well ---
+          const canCancel = app.status === 'Pending' || app.status === 'Approved'; 
+          // --- END MODIFICATION ---
+
+          const row = $(`
+            <tr class="hover:bg-gray-50">
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm font-mono text-gray-900">${app.appId}</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <div class="text-sm font-medium text-gray-900">${app.employeeName}</div>
+                <div class="text-xs text-gray-500">${app.employeeId}</div>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="text-sm font-semibold text-gray-900">${parseFloat(app.hours).toFixed(2)} hrs</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                ${dateRange}
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                ${app.appliedDate || 'N/A'}
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="status-badge ${statusClass}">${app.status || 'Pending'}</span>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm">
+                <div class="flex gap-2">
+                  ${canEdit ? `
+                    <button class="edit-btn p-2 text-yellow-600 hover:text-yellow-800 hover:bg-yellow-50 rounded-lg transition" 
+                            data-id="${app.appId}"
+                            title="Edit Application">
+                      <i class="bi bi-pencil-square"></i>
+                    </button>
+                  ` : ''}
+                  ${canCancel ? `
+                    <button class="cancel-btn p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition" 
+                            data-id="${app.appId}"
+                            title="Cancel Application">
+                      <i class="bi bi-x-circle"></i>
+                    </button>
+                  ` : ''}
+                  ${!canEdit && !canCancel ? `
+                    <span class="text-gray-400 text-xs italic">No actions</span>
+                  ` : ''}
+                  <button class="view-btn p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition" 
+                          data-id="${app.appId}"
+                          title="View Details">
+                    <i class="bi bi-eye"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          `);
+
+          tbody.append(row);
+        });
+
+        // Attach event handlers
+        $('.edit-btn').on('click', function() {
+          const appId = $(this).data('id');
+          editApplication(appId);
+        });
+
+        $('.cancel-btn').on('click', function() {
+          const appId = $(this).data('id');
+          cancelApplication(appId);
+        });
+
+        $('.view-btn').on('click', function() {
+          const appId = $(this).data('id');
+          viewApplicationDetails(appId);
+        });
+      }
+
+      // Edit application
+      function editApplication(appId) {
+        const app = filteredApplications.find(a => a.appId === appId);
+        if (!app) return;
+        
+        // --- MODIFICATION: Allow editing Approved or Pending ---
+        if (app.status !== 'Pending' && app.status !== 'Approved') {
+           showModal('Info', 'Only "Pending" or "Approved" applications can be edited.', 'info');
+           return;
+        }
+        // --- END MODIFICATION ---
+
+        $('#editAppId').val(app.appId);
+        $('#editEmployeeName').val(`${app.employeeName} (${app.employeeId})`);
+        $('#editHours').val(parseFloat(app.hours)); // Use .val() for select
+        $('#editStartDate').val(app.startDate);
+        $('#editEndDate').val(app.endDate);
+
+        // --- MODIFICATION: Clear remarks if it's the default date string ---
+        const currentRemarks = app.remarks || '';
+        // Basic check if remarks look like a standard Date.toString() output
+        const isDefaultDateString = /\w{3}\s\w{3}\s\d{1,2}\s\d{4}\s\d{2}:\d{2}:\d{2}\sGMT[+-]\d{4}\s\(.*\)/.test(currentRemarks);
+        $('#editRemarks').val(isDefaultDateString ? '' : currentRemarks);
+        // --- END MODIFICATION ---
+
+        $('#editModal').removeClass('hidden');
+      }
+
+      // Save edit
+      function saveEdit() {
+        const appId = $('#editAppId').val();
+        const hours = parseFloat($('#editHours').val());
+        const startDateStr = $('#editStartDate').val();
+        const endDateStr = $('#editEndDate').val();
+        const remarks = $('#editRemarks').val();
+
+        // --- START: Enhanced Validations (from CTORecordForm) ---
+        
+        // 1. Check for valid hours (multiple of 4)
+        if (!hours || hours <= 0 || hours % 4 !== 0) {
+          showModal('Validation Error', 'CTO hours must be a positive multiple of 4 (e.g., 4, 8, 12).', 'warning');
+          return;
+        }
+
+        // 2. Check for dates
+        if (!startDateStr || !endDateStr) {
+          showModal('Validation Error', 'Start and End dates are required', 'warning');
+          return;
+        }
+
+        const startDate = new Date(startDateStr + 'T00:00:00');
+        const endDate = new Date(endDateStr + 'T00:00:00');
+        // Calculate inclusive days
+        const diffDays = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+        // 3. Check chronological order
+        if (endDate < startDate) {
+          showModal('Validation Error', 'End date must not be before the start date.', 'warning');
+          return;
+        }
+        
+        // 4. Check 5-day limit
+        if (diffDays > 5) {
+          showModal('Validation Error', 'Date range must not exceed 5 days.', 'warning');
+          return;
+        }
+
+        // 5. Check 4/8 hour rule
+        if ((hours === 4 || hours === 8) && startDate.getTime() !== endDate.getTime()) {
+          showModal('Validation Error', 'For 4 or 8-hour CTO applications, the start and end dates must be the same.', 'warning');
+          return;
+        }
+        // --- END: Enhanced Validations ---
+
+
+        $('#editSaveText').text('Saving...');
+        $('#editSaveSpinner').removeClass('hidden');
+        $('#editModalSave').prop('disabled', true);
+
+        google.script.run
+          .withSuccessHandler(function(result) {
+            $('#editModal').addClass('hidden');
+            
+            if(result.success === false) {
+              // Handle server-side validation errors (like insufficient balance)
+              showModal('Update Failed', result.message || 'Could not update application.', 'danger');
+            } else {
+              showModal('Success', result.message || 'CTO application updated successfully', 'success');
+              loadApplications(); // Refresh the list
+            }
+            
+            $('#editSaveText').text('Save Changes');
+            $('#editSaveSpinner').addClass('hidden');
+            $('#editModalSave').prop('disabled', false);
+          })
+          .withFailureHandler(function(err) {
+            showModal('Error', 'Failed to update application: ' + (err.message || err), 'danger');
+            $('#editSaveText').text('Save Changes');
+            $('#editSaveSpinner').addClass('hidden');
+            $('#editModalSave').prop('disabled', false);
+          })
+          .apiUpdateCTOApplication(appId, hours, startDateStr, endDateStr, remarks); // Pass string dates
+      }
+
+      // Cancel application
+      function cancelApplication(appId) {
+        const app = filteredApplications.find(a => a.appId === appId);
+        if (!app) return;
+
+        // --- MODIFICATION: Allow cancelling Approved or Pending ---
+        if (app.status !== 'Pending' && app.status !== 'Approved') {
+           showModal('Info', 'Only "Pending" or "Approved" applications can be cancelled.', 'info');
+           return; // Prevent cancellation if not in allowed states
+        }
+        // --- END MODIFICATION ---
+
+        const dateRange = app.startDate === app.endDate 
+          ? app.startDate 
+          : `${app.startDate} to ${app.endDate}`;
+          
+        const hoursToRestore = (app.status === 'Approved') ? // Only show restore message if it was approved
+           `<br><br><span class="text-red-600 font-semibold">This will restore ${parseFloat(app.hours).toFixed(2)} hours to the employee's balance.</span>` :
+           '<br><br><span class="text-gray-600 font-semibold">This is a Pending application and will be marked as Cancelled.</span>';
+
+        showConfirm(
+          'Cancel CTO Application?',
+          `Are you sure you want to cancel this CTO application?<br><br>
+          <strong>Employee:</strong> ${app.employeeName}<br>
+          <strong>Status:</strong> ${app.status}<br>
+          <strong>Hours:</strong> ${parseFloat(app.hours).toFixed(2)} hrs<br>
+          <strong>Period:</strong> ${dateRange}
+          ${hoursToRestore}`,
+          // --- MODIFICATION: Pass confirmed status to callback ---
+          function(confirmed) {
+            if (!confirmed) return; // Exit if user clicked Cancel
+          // --- END MODIFICATION ---
+
+            $('#filterSpinner').removeClass('hidden'); // Show spinner on main page
+            
+            google.script.run
+              .withSuccessHandler(function(result) {
+                if (result.success === false) {
+                  showModal('Error', result.message || 'Could not cancel application.', 'danger');
+                } else {
+                  showModal('Success', result.message || 'CTO application cancelled successfully', 'success');
+                }
+                loadApplications(); // Refresh list regardless of success/fail to show latest status
+              })
+              .withFailureHandler(function(err) {
+                showModal('Error', 'Failed to cancel application: ' + (err.message || err), 'danger');
+                 // --- MODIFICATION: Always hide spinner and refresh ---
+                $('#filterSpinner').addClass('hidden');
+                loadApplications(); // Refresh even on failure
+                // --- END MODIFICATION ---
+              })
+              .apiCancelCTOApplication(appId); // This function needs to be updated in Code.gs
+          }
+        );
+      }
+
+      // View application details
+      function viewApplicationDetails(appId) {
+        const app = filteredApplications.find(a => a.appId === appId);
+        if (!app) return;
+
+        const dateRange = app.startDate === app.endDate 
+          ? (app.startDate || 'N/A')
+          : `${app.startDate || 'N/A'} to ${app.endDate || 'N/A'}`;
+          
+        let statusClass = `status-${app.status || 'Pending'}`;
+
+        const details = `
+          <div class="space-y-3 text-sm">
+            <div class="flex justify-between py-2 border-b">
+              <span class="font-semibold text-gray-600">Application ID:</span>
+              <span class="font-mono">${app.appId}</span>
+            </div>
+            <div class="flex justify-between py-2 border-b">
+              <span class="font-semibold text-gray-600">Employee:</span>
+              <span>${app.employeeName} (${app.employeeId})</span>
+            </div>
+            <div class="flex justify-between py-2 border-b">
+              <span class="font-semibold text-gray-600">Office:</span>
+              <span>${app.office || 'N/A'}</span>
+            </div>
+            <div class="flex justify-between py-2 border-b">
+              <span class="font-semibold text-gray-600">Hours:</span>
+              <span class="font-bold">${parseFloat(app.hours).toFixed(2)} hrs</span>
+            </div>
+            <div class="flex justify-between py-2 border-b">
+              <span class="font-semibold text-gray-600">CTO Period:</span>
+              <span>${dateRange}</span>
+            </div>
+            <div class="flex justify-between py-2 border-b">
+              <span class="font-semibold text-gray-600">Applied Date:</span>
+              <span>${app.appliedDate || 'N/A'}</span>
+            </div>
+             <div class="flex justify-between py-2 border-b">
+              <span class="font-semibold text-gray-600">Approved Date:</span>
+              <span>${app.approvedDate || 'N/A'}</span>
+            </div>
+            <div class="flex justify-between py-2 border-b">
+              <span class="font-semibold text-gray-600">Status:</span>
+              <span class="status-badge ${statusClass}">${app.status || 'Pending'}</span>
+            </div>
+            <div class="py-2">
+              <span class="font-semibold text-gray-600 block mb-1">Remarks:</span>
+              <pre class="text-gray-700 bg-gray-50 p-2 rounded-md whitespace-pre-wrap font-sans">${app.remarks || 'None'}</pre>
+            </div>
+          </div>
+        `;
+
+        $('#viewModalBody').html(details);
+        $('#viewModal').removeClass('hidden');
+      }
+      
+      // --- END: All application functions ---
+
+      // --- START: New initialization logic ---
+      
+      /**
+       * This function contains all the code that needs to run AFTER
+       * the google.script.run API is available.
+       */
+      function initializeApp() {
+        // Initialize
+        loadEmployees();
+        loadApplications();
+
+        // Event Listeners
+        $('#applyFilterBtn').on('click', applyFilters);
+        $('#clearFilterBtn').on('click', clearFilters);
+        $('#refreshBtn').on('click', loadApplications);
+        
+        // Modal close handlers
+        $('#responseModalOK, #responseModalClose').on('click', () => $('#responseModal').addClass('hidden'));
+        $('#viewModalClose, #viewModalOK').on('click', () => $('#viewModal').addClass('hidden'));
+        $('#editModalClose, #editModalCancel').on('click', () => $('#editModal').addClass('hidden'));
+        $('#confirmModalClose, #confirmModalCancel').on('click', () => $('#confirmModal').addClass('hidden'));
+        
+        // Edit modal save
+        $('#editModalSave').on('click', saveEdit);
+      }
+
+      /**
+       * This function recursively checks if the google.script.run
+       * API is ready. Once it is, it calls initializeApp().
+       */
+      function startAppWhenReady() {
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          // API is ready, start the application
+          initializeApp();
+        } else {
+          // API not ready, check again in 100ms
+          setTimeout(startAppWhenReady, 100);
+        }
+      }
+
+      // Start the readiness check
+      startAppWhenReady();
+      
+      // --- END: New initialization logic ---
+    };
+  </script>
+
+  
+
+
+  <script>
+    // Back to Dashboard function
+    function backToDashboard() {
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run.navigateToPage('Dashboard');
+      } else {
+        window.location.href = 'dashboard_no_sidebar.html';
+      }
+    }
+  </script>
+
+</body>
+</html>
