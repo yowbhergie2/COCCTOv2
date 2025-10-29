@@ -1,0 +1,423 @@
+// -----------------------------------------------------------------------------
+// Certificates.gs
+// -----------------------------------------------------------------------------
+
+/**
+ * CORRECTED: Calculates expiration date based on CERTIFICATE ISSUE DATE
+ * Formula: Certificate Issue Date + 1 Year - 1 Day
+ *
+ * Example:
+ *   Certificate issued: Nov 5, 2025
+ *   Expiration: Nov 4, 2026 (NOT Nov 5, 2026)
+ */
+function calculateCertificateExpiration(issueDate) {
+  const expiration = new Date(issueDate);
+  expiration.setFullYear(expiration.getFullYear() + 1);
+  expiration.setDate(expiration.getDate() - 1);
+  expiration.setHours(0, 0, 0, 0);
+  return expiration;
+}
+
+
+/**
+ * CORRECTED: Generate monthly COC certificate for an employee
+ * This consolidates all COC earned in a specific month
+ * 
+ * Example: October 2025
+ *   - Oct 4: 4 hrs
+ *   - Oct 6: 2 hrs  
+ *   - Oct 25: 8 hrs
+ *   Total: 14 hrs
+ *   Certificate issued: Nov 5, 2025
+ *   All 3 records expire: Nov 4, 2026
+ */
+function generateMonthlyCOCCertificate(employeeId, monthYear) {
+  const db = getDatabase();
+  const recSheet = db.getSheetByName('COC_Records');
+  const detailSheet = ensureCOCBalanceDetailSheet();
+  const TIME_ZONE = getScriptTimeZone();
+  
+  if (!recSheet) throw new Error('COC_Records sheet not found');
+  
+  // Parse month-year (format: "2025-10" or "10-2025")
+  const [part1, part2] = monthYear.split('-');
+  const year = part1.length === 4 ? parseInt(part1) : parseInt(part2);
+  const month = part1.length === 4 ? parseInt(part2) : parseInt(part1);
+  
+  // Get all approved COC records for this employee and month
+  const recData = recSheet.getDataRange().getValues();
+  const monthRecords = [];
+  
+  for (let i = 1; i < recData.length; i++) {
+    const row = recData[i];
+    const empId = row[1]; // Employee ID
+    const dateRendered = new Date(row[4]); // Date Rendered
+    const status = row[15]; // Status
+    
+    if (empId === employeeId && status === 'Active') {
+      const recordMonth = dateRendered.getMonth() + 1;
+      const recordYear = dateRendered.getFullYear();
+      
+      if (recordMonth === month && recordYear === year) {
+        monthRecords.push({
+          recordId: row[0],
+          dateRendered: dateRendered,
+          hoursWorked: parseFloat(row[10]) || 0,
+          cocEarned: parseFloat(row[12]) || 0,
+          rowIndex: i + 1
+        });
+      }
+    }
+  }
+  
+  if (monthRecords.length === 0) {
+    throw new Error('No COC records found for this employee and month');
+  }
+  
+  // Get employee name
+  const employeeName = recData[monthRecords[0].rowIndex - 1][2];
+  
+  // Calculate total COC earned
+  const totalCOC = monthRecords.reduce((sum, rec) => sum + rec.cocEarned, 0);
+  
+  // Create certificate ID based on current timestamp
+  const issueDate = new Date();
+  const certificateId = 'CERT-' + Utilities.formatDate(issueDate, TIME_ZONE, 'yyyyMMddHHmmssSSS');
+  
+  // Calculate expiration: Issue Date + 1 Year - 1 Day
+  const expirationDate = calculateCertificateExpiration(issueDate);
+  
+  // Create Google Doc certificate
+  const docName = `COC Certificate - ${employeeName} - ${monthYear}`;
+  const doc = DocumentApp.create(docName);
+  const body = doc.getBody();
+  
+  // Certificate header
+  body.appendParagraph('Republic of the Philippines')
+    .setBold(true).setFontSize(12)
+    .setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+  body.appendParagraph('Department of Public Works and Highways')
+    .setBold(true).setFontSize(12)
+    .setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+  body.appendParagraph('Certificate of Compensatory Overtime Credit (COC)')
+    .setBold(true).setFontSize(14)
+    .setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+  body.appendParagraph('\n');
+  
+  // Certificate body
+  body.appendParagraph(`Certificate ID: ${certificateId}`)
+    .setBold(true);
+  body.appendParagraph(`Employee: ${employeeName}`);
+  body.appendParagraph(`Period: ${monthYear}`);
+  body.appendParagraph('\n');
+  
+  // List all dates
+  body.appendParagraph('This certifies that the above-named employee has rendered overtime services during the following dates:')
+    .setBold(true);
+  
+  monthRecords.forEach(rec => {
+    body.appendParagraph(`  • ${Utilities.formatDate(rec.dateRendered, TIME_ZONE, 'MMMM dd, yyyy')}: ${rec.hoursWorked.toFixed(2)} hours worked = ${rec.cocEarned.toFixed(2)} COC hours`);
+  });
+  
+  body.appendParagraph('\n');
+  body.appendParagraph(`Total COC Earned: ${totalCOC.toFixed(2)} hours`)
+    .setBold(true).setFontSize(13);
+  body.appendParagraph('\n');
+  
+  // Issue and expiration info
+  body.appendParagraph(`Date Issued: ${Utilities.formatDate(issueDate, TIME_ZONE, 'MMMM dd, yyyy')}`);
+  body.appendParagraph(`Expiration Date: ${Utilities.formatDate(expirationDate, TIME_ZONE, 'MMMM dd, yyyy')}`)
+    .setBold(true).setForegroundColor('#DC2626'); // Red color for emphasis
+  body.appendParagraph('\n');
+  body.appendParagraph(`Processed by: ${Session.getActiveUser().getEmail()}`);
+  
+  doc.saveAndClose();
+  const docId = doc.getId();
+  const docUrl = doc.getUrl();
+  const pdfUrl = `https://docs.google.com/document/d/${docId}/export?format=pdf`;
+  
+  // Update COC_Certificates sheet
+  let certSheet = db.getSheetByName('COC_Certificates');
+  if (!certSheet) {
+    certSheet = db.insertSheet('COC_Certificates');
+    certSheet.getRange(1, 1, 1, 12).setValues([[
+      'Certificate ID', 'Employee ID', 'Employee Name', 'Month-Year', 
+      'Total COC Earned', 'Issue Date', 'Expiration Date', 
+      'Certificate URL', 'PDF URL', 'Status', 'Created Date', 'Created By'
+    ]]);
+  }
+  
+  certSheet.appendRow([
+    certificateId,
+    employeeId,
+    employeeName,
+    monthYear,
+    totalCOC,
+    issueDate,
+    expirationDate,
+    docUrl,
+    pdfUrl,
+    'Active',
+    issueDate,
+    Session.getActiveUser().getEmail()
+  ]);
+  
+  // UPDATE ALL RELATED RECORDS in COC_Balance_Detail with certificate info and expiration
+  const detailData = detailSheet.getDataRange().getValues();
+  
+  for (let i = 1; i < detailData.length; i++) {
+    const recordId = detailData[i][DETAIL_COLS.RECORD_ID];
+    
+    // Check if this detail record matches any of our month records
+    if (monthRecords.some(rec => rec.recordId === recordId)) {
+      // Update Certificate ID
+      detailSheet.getRange(i + 1, DETAIL_COLS.CERTIFICATE_ID + 1).setValue(certificateId);
+      
+      // Update Certificate Issue Date
+      detailSheet.getRange(i + 1, DETAIL_COLS.CERTIFICATE_ISSUE_DATE + 1).setValue(issueDate);
+      
+      // Update Expiration Date (CRITICAL: Based on certificate issue date, NOT date earned!)
+      detailSheet.getRange(i + 1, DETAIL_COLS.EXPIRATION_DATE + 1).setValue(expirationDate);
+      
+      // Update notes
+      const existingNotes = detailData[i][DETAIL_COLS.NOTES] || '';
+      const newNote = `[${Utilities.formatDate(issueDate, TIME_ZONE, 'yyyy-MM-dd')}] Certificate issued: ${certificateId}. Expires: ${Utilities.formatDate(expirationDate, TIME_ZONE, 'yyyy-MM-dd')}`;
+      detailSheet.getRange(i + 1, DETAIL_COLS.NOTES + 1).setValue(
+        existingNotes ? existingNotes + '\n' + newNote : newNote
+      );
+    }
+  }
+  
+  return {
+    certificateId: certificateId,
+    docUrl: docUrl,
+    pdfUrl: pdfUrl,
+    totalCOC: totalCOC,
+    issueDate: issueDate,
+    expirationDate: expirationDate,
+    recordsUpdated: monthRecords.length
+  };
+}
+
+
+/**
+ * Generates a certificate document for a specific COC record. If a certificate
+ * has already been generated for this record it will simply return the
+ * existing certificate URL. Certificates are tracked in a dedicated sheet
+ * named "COC_Certificates" which stores the record ID, employee ID, hours
+ * earned, date rendered and the certificate document URL. A new Google
+ * Document is created with a simple layout summarising the overtime and
+ * signed by the processing officer.
+ *
+ * @param {string} recordId The COC record ID.
+ * @return {Object} An object containing the certificate URL and document ID.
+ */
+function generateCOCCertificate(recordId) {
+  const db = getDatabase();
+  const recSheet = db.getSheetByName('COC_Records');
+  if (!recSheet) throw new Error('COC_Records sheet not found');
+  const data = recSheet.getDataRange().getValues();
+  let record = null;
+  let recordRowIndex = -1;
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === recordId) {
+      record = data[i];
+      recordRowIndex = i + 1;
+      break;
+    }
+  }
+  if (!record || recordRowIndex === -1) throw new Error('COC record not found');
+  // Check certificate sheet for existing certificate
+  let certSheet = db.getSheetByName('COC_Certificates');
+  if (!certSheet) {
+    certSheet = db.insertSheet('COC_Certificates');
+    certSheet.getRange(1, 1, 1, 9).setValues([
+      ['Record ID','Employee ID','Employee Name','Date Rendered','Hours Worked','COC Earned','Certificate URL','PDF URL','Issued Date']
+    ]);
+  }
+  const certData = certSheet.getDataRange().getValues();
+  for (let i = 1; i < certData.length; i++) {
+    if (certData[i][0] === recordId) {
+      // Already exists - return both doc and PDF URLs
+      return { docUrl: certData[i][6], pdfUrl: certData[i][7] || certData[i][6], docId: '' };
+    }
+  }
+  const employeeId = record[1];
+  const employeeName = record[2];
+  const dateRendered = new Date(record[4]);
+  const hoursWorked = parseFloat(record[10]) || 0;
+  const cocEarned = parseFloat(record[12]) || 0;
+  // Create document
+  const docName = 'COC Certificate - ' + employeeName + ' - ' + formatDate(dateRendered);
+  const doc = DocumentApp.create(docName);
+  const body = doc.getBody();
+  body.appendParagraph('Republic of the Philippines').setBold(true).setFontSize(12).setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+  body.appendParagraph('Department of Public Works and Highways').setBold(true).setFontSize(12).setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+  body.appendParagraph('Certificate of Compensatory Overtime Credit (COC)').setBold(true).setFontSize(14).setAlignment(DocumentApp.HorizontalAlignment.CENTER);
+  body.appendParagraph('\n');
+  body.appendParagraph('This certifies that ' + employeeName + ' has rendered overtime services on ' + formatDate(dateRendered) + ' totaling ' + hoursWorked.toFixed(2) + ' hour(s).');
+  body.appendParagraph('In accordance with Civil Service Commission policies, the services rendered have been credited as ' + cocEarned.toFixed(2) + ' hour(s) of Compensatory Overtime Credit.');
+  body.appendParagraph('\n');
+  const issueDate = new Date();
+  body.appendParagraph('Processed by: ' + Session.getActiveUser().getEmail());
+  body.appendParagraph('Date Issued: ' + formatDate(issueDate));
+  doc.saveAndClose();
+  const docId = doc.getId();
+  const docUrl = doc.getUrl();
+
+  // Create PDF export URL
+  const pdfUrl = 'https://docs.google.com/document/d/' + docId + '/export?format=pdf';
+
+  // Calculate standardized expiration and persist back to the record sheet
+  const expirationDate = calculateCertificateExpiration(issueDate);
+  recSheet.getRange(recordRowIndex, 15).setValue(expirationDate);
+
+  // Synchronise with the FIFO detail sheet so expiration logic stays correct
+  const detailSheet = ensureCOCBalanceDetailSheet();
+  const detailData = detailSheet.getDataRange().getValues();
+  const certificateId = 'CERT-' + Utilities.formatDate(issueDate, getScriptTimeZone(), 'yyyyMMddHHmmssSSS');
+  for (let i = 1; i < detailData.length; i++) {
+    if (detailData[i][DETAIL_COLS.RECORD_ID] === recordId) {
+      detailSheet.getRange(i + 1, DETAIL_COLS.CERTIFICATE_DATE + 1).setValue(issueDate);
+      detailSheet.getRange(i + 1, DETAIL_COLS.EXPIRATION_DATE + 1).setValue(expirationDate);
+      detailSheet.getRange(i + 1, DETAIL_COLS.CERTIFICATE_ID + 1).setValue(certificateId);
+      const existingRemarks = detailSheet.getRange(i + 1, DETAIL_COLS.REMARKS + 1).getValue() || '';
+      const remarkNote = `[${Utilities.formatDate(issueDate, getScriptTimeZone(), 'yyyy-MM-dd')}] Certificate issued (${certificateId}).`;
+      detailSheet.getRange(i + 1, DETAIL_COLS.REMARKS + 1).setValue(existingRemarks ? existingRemarks + '\n' + remarkNote : remarkNote);
+      break;
+    }
+  }
+
+  const ledgerSheet = db.getSheetByName('COC_Ledger');
+  if (ledgerSheet) {
+    const ledgerData = ledgerSheet.getDataRange().getValues();
+    for (let i = 1; i < ledgerData.length; i++) {
+      if (ledgerData[i][5] === recordId) {
+        ledgerSheet.getRange(i + 1, 11).setValue(expirationDate);
+      }
+    }
+  }
+
+  // Record certificate
+  certSheet.appendRow([
+    recordId,
+    employeeId,
+    employeeName,
+    dateRendered,
+    hoursWorked,
+    cocEarned,
+    docUrl,
+    pdfUrl,
+    issueDate
+  ]);
+  return { docUrl: docUrl, pdfUrl: pdfUrl, docId: docId, expirationDate: expirationDate, certificateId: certificateId };
+}
+
+
+/**
+ * Helper function to create the Google Doc certificate.
+ */
+function generateCertificateDocument(certificateId, empDetails, records, issueDate, expirationDate) {
+  try {
+    // Get settings data
+    const settingsData = getSheetDataNoHeader('Settings'); // Assuming you have getSheetDataNoHeader
+
+    // Find the template ID in settings
+    const templateRow = settingsData.find(r => r[0] === 'COC_CERTIFICATE_TEMPLATE_ID');
+    const templateId = templateRow ? String(templateRow[1]).trim() : null; // Get value from 2nd column (index 1) and trim
+
+    if (!templateId) {
+      Logger.log("ERROR: Certificate Template ID (COC_CERTIFICATE_TEMPLATE_ID) not found or empty in the Settings sheet.");
+      throw new Error("Certificate Template ID not configured. Please set COC_CERTIFICATE_TEMPLATE_ID in the Settings sheet.");
+    }
+    Logger.log("Using Template ID: " + templateId);
+
+    // Check if template file exists and is accessible
+    let templateFile;
+    try {
+      templateFile = DriveApp.getFileById(templateId);
+      // Attempt a simple operation to check permissions
+      templateFile.getName();
+    } catch (e) {
+      Logger.log("ERROR accessing template file ID: " + templateId + ". Error: " + e.message);
+      throw new Error("Could not access the Certificate Template (ID: " + templateId + "). Please ensure the ID is correct and the script has permission to access it.");
+    }
+
+    // Create a copy
+    const newFileName = `COC Certificate - ${empDetails.fullName} - ${certificateId}`;
+    const newFile = templateFile.makeCopy(newFileName);
+    const doc = DocumentApp.openById(newFile.getId());
+    const body = doc.getBody();
+
+    // Prepare data
+    const totalCOC = records.reduce((sum, r) => sum + parseFloat(r[RECORD_COLS.COC_EARNED] || 0), 0);
+    const inclusiveDates = formatInclusiveDates(records.map(r => new Date(r[RECORD_COLS.DATE_RENDERED])));
+    const issueDateFormatted = formatLongDate(issueDate);
+    const expiryDateFormatted = formatLongDate(expirationDate);
+
+    // Get signatories dynamically from settings
+    const getSetting = (key, defaultValue = `[${key} not found]`) => {
+      const row = settingsData.find(r => r[0] === key);
+      return row ? row[1] : defaultValue;
+    };
+
+    const issuedByName = getSetting("SIGNATORY_ISSUED_BY_NAME");
+    const issuedByPosition = getSetting("SIGNATORY_ISSUED_BY_POSITION");
+
+    // Replace placeholders
+    body.replaceText("{{EMPLOYEE_NAME}}", empDetails.fullName.toUpperCase());
+    body.replaceText("{{POSITION}}", empDetails.position);
+    body.replaceText("{{OFFICE}}", empDetails.office);
+    body.replaceText("{{TOTAL_COC}}", totalCOC.toFixed(1));
+    body.replaceText("{{INCLUSIVE_DATES}}", inclusiveDates);
+    body.replaceText("{{ISSUE_DATE_FORMATTED}}", issueDateFormatted);
+    body.replaceText("{{EXPIRY_DATE_FORMATTED}}", expiryDateFormatted);
+    body.replaceText("{{ISSUED_BY_NAME}}", issuedByName.toUpperCase());
+    body.replaceText("{{ISSUED_BY_POSITION}}", issuedByPosition);
+    body.replaceText("{{CERTIFICATE_ID}}", certificateId);
+
+    doc.saveAndClose();
+
+    // Set permissions to "anyone with link can view"
+    newFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    Logger.log("Document created and shared: " + newFile.getUrl());
+
+    // Generate PDF
+    let pdfFile, pdfUrl;
+    try {
+      const pdfBlob = newFile.getAs('application/pdf');
+      pdfFile = DriveApp.createFile(pdfBlob).setName(newFileName + ".pdf");
+      pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      pdfUrl = pdfFile.getUrl(); // Use the standard URL
+       // pdfUrl = `https://drive.google.com/uc?export=download&id=${pdfFile.getId()}`; // Alternative download link
+      Logger.log("PDF created and shared: " + pdfUrl);
+    } catch (pdfError) {
+        Logger.log("ERROR generating or sharing PDF: " + pdfError.message);
+        pdfUrl = null; // Set PDF URL to null if generation fails
+    }
+
+
+    return {
+      url: newFile.getUrl(),
+      pdfUrl: pdfUrl // Return the generated (or null) PDF URL
+    };
+
+  } catch (e) {
+    Logger.log(`Error in generateCertificateDocument: ${e}\nStack: ${e.stack}`);
+    // Try to clean up the copied file if it exists
+    try {
+      if (newFile) {
+        DriveApp.getFileById(newFile.getId()).setTrashed(true);
+        Logger.log("Cleaned up potentially created document file.");
+      }
+      if (pdfFile) {
+         DriveApp.getFileById(pdfFile.getId()).setTrashed(true);
+         Logger.log("Cleaned up potentially created PDF file.");
+      }
+    } catch (cleanupError) {
+      Logger.log("Error during cleanup: " + cleanupError.message);
+    }
+    throw new Error(`Failed to create document: ${e.message}`);
+  }
+}
+
