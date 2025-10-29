@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Enhanced Employee Ledger</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <script>
+    window.CURRENT_PAGE = 'employee-ledger';
+  </script>
+  
+  <!-- Select2 CSS -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.1.0/css/select2.min.css" rel="stylesheet" />
+  
+  <!-- Bootstrap Icons -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.0/font/bootstrap-icons.min.css" rel="stylesheet" />
+  
+  <!-- SheetJS for Excel export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  
+  <!-- FileSaver for downloading -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.2/FileSaver.min.js"></script>
+  
+  <style>
+    body {
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .spinner {
+      display: inline-block;
+      width: 1rem;
+      height: 1rem;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 1s ease-in-out infinite;
+    }
+
+    .select2-container .select2-selection--single {
+      height: 42px !important;
+      border: 1px solid #d1d5db !important;
+      border-radius: 0.5rem !important;
+      padding: 0.5rem 0.75rem !important;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+      height: 40px !important;
+    }
+    .select2-container--default .select2-selection--single .select2-selection__rendered {
+      line-height: 24px !important;
+    }
+    .select2-dropdown {
+      border: 1px solid #d1d5db !important;
+      border-radius: 0.5rem !important;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-700">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-4">
+    <h4 class="flex items-center gap-3 text-2xl font-bold text-gray-800">
+      <i class="bi bi-journal-bookmark-fill text-blue-600"></i>
+      <span>Employee Ledger</span>
+    </h4>
+    <button type="button" class="px-4 py-2 bg-gray-600 text-white font-medium rounded-md shadow-sm hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors" onclick="backToDashboard()">
+      <i class="bi bi-arrow-left-circle"></i> Back to Dashboard
+    </button>
+  </div>
+
+  <!-- Selection Area -->
+  <div class="bg-white p-4 rounded-xl shadow-sm mb-6">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="md:col-span-2">
+        <label for="ledgerEmployeeSelect" class="block text-sm font-medium text-gray-700 mb-1">Select Employee</label>
+        <select id="ledgerEmployeeSelect" class="w-full"></select>
+      </div>
+      <div class="md:col-span-1 flex items-end gap-2">
+        <button type="button" class="w-full flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75" id="viewLedgerBtn">
+          <i class="bi bi-eye"></i>
+          <span id="viewLedgerBtnText">View Ledger</span>
+          <span id="viewLedgerSpinner" class="spinner hidden"></span>
+        </button>
+        <button type="button" class="w-full flex items-center justify-center gap-2 bg-green-600 text-white px-4 py-2.5 rounded-lg shadow-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75" id="exportLedgerBtn" disabled>
+          <i class="bi bi-file-earmark-excel"></i>
+          <span>Export Excel</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Ledger Content -->
+  <div id="ledgerContent" class="hidden">
+    
+    <!-- Header Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+      
+      <div class="md:col-span-2 lg:col-span-2 bg-white p-6 rounded-xl shadow-sm flex flex-col justify-center">
+        <h2 id="ledgerEmployeeName" class="text-2xl font-bold text-gray-900 truncate">Employee Name</h2>
+        <p id="ledgerEmployeeInfo" class="text-sm text-gray-600">Position - Office/Division</p>
+      </div>
+
+      <div class="bg-gradient-to-br from-blue-600 to-blue-800 text-white p-6 rounded-xl shadow-lg flex flex-col justify-center">
+        <div class="text-sm font-medium text-blue-100 uppercase tracking-wide">Current COC Balance</div>
+        <div id="ledgerBalance" class="text-5xl font-bold mt-2">0.00</div>
+        <div class="text-blue-100">Hours</div>
+      </div>
+
+      <div class="bg-gradient-to-br from-yellow-500 to-orange-500 text-white p-6 rounded-xl shadow-lg flex flex-col justify-center">
+        <div class="text-sm font-medium text-yellow-100 uppercase tracking-wide">Expiring in 90 Days</div>
+        <div id="ledgerExpiringSoon" class="text-5xl font-bold mt-2">0.00</div>
+        <div class="text-yellow-100">Hours</div>
+      </div>
+    </div>
+
+    <!-- FIFO Breakdown & Pending CTOs -->
+    <div class="grid grid-cols-1 lg:grid-cols-1 gap-6 mb-6">
+      
+      <div id="fifoBreakdownCard" class="bg-white p-4 rounded-xl shadow-sm">
+        <h3 class="text-lg font-semibold text-gray-800 mb-3 px-2">Active COC Balance Breakdown (FIFO)</h3>
+        <div class="max-h-60 overflow-y-auto">
+          <table class="min-w-full">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="py-2 px-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date Earned</th>
+                <th class="py-2 px-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hours</th>
+                <th class="py-2 px-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expires</th>
+                <th class="py-2 px-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Days Left</th>
+              </tr>
+            </thead>
+            <tbody id="fifoBreakdownBody" class="divide-y divide-gray-200"></tbody>
+          </table>
+          <div id="fifoBreakdownEmpty" class="text-center p-4 text-gray-500 hidden">
+            No active COC balance found.
+          </div>
+        </div>
+      </div>
+
+  
+
+    <!-- Ledger Table -->
+    <div class="bg-white p-4 rounded-xl shadow-sm">
+      <h3 class="text-lg font-semibold text-gray-800 mb-3 px-2">Transaction History</h3>
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+              <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Transaction</th>
+              <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+              <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hours (+/-)</th>
+              <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Balance</th>
+              <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expires</th>
+            </tr>
+          </thead>
+          <tbody id="ledgerBody" class="bg-white divide-y divide-gray-200"></tbody>
+        </table>
+        <div id="ledgerBodyEmpty" class="text-center p-8 text-gray-500 hidden">
+          No transactions found for this employee.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Response Modal -->
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 hidden" id="responseModal">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+      <div id="modalHeader" class="flex items-center justify-between p-4 rounded-t-lg">
+        <h5 class="modal-title text-white font-semibold text-lg" id="modalTitle">Result</h5>
+        <button type="button" class="text-white hover:text-gray-200" id="responseModalClose">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+      <div class="modal-body p-6 text-gray-700" id="modalBody"></div>
+      <div class="modal-footer p-4 bg-gray-50 rounded-b-lg text-right">
+        <button class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700" id="responseModalOK">OK</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Confirm Modal -->
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 hidden" id="confirmModal">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+      <div class="flex items-center justify-between p-4 bg-yellow-400 rounded-t-lg">
+        <h5 class="modal-title text-gray-800 font-semibold text-lg" id="confirmModalTitle">Confirm Action</h5>
+        <button type="button" class="text-gray-700 hover:text-black" id="confirmModalClose">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+      <div class="modal-body p-6 text-gray-700" id="confirmModalBody"></div>
+      <div class="modal-footer p-4 bg-gray-50 rounded-b-lg flex justify-end gap-3">
+        <button type="button" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300" id="confirmModalCancel">Cancel</button>
+        <button type="button" class="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700" id="confirmModalOK">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.1.0/js/select2.min.js"></script>
+  
+  <script>
+    window.onload = function() {
+    
+      function showModal(title, message, type) {
+        const modal = $('#responseModal');
+        const header = $('#modalHeader');
+        
+        $('#modalTitle').text(title);
+        $('#modalBody').html(message.replace(/\n/g, '<br>'));
+        
+        header.removeClass('bg-green-500 bg-red-500 bg-yellow-400 bg-blue-500');
+        if (type === 'success') header.addClass('bg-green-500');
+        else if (type === 'danger') header.addClass('bg-red-500');
+        else if (type === 'warning') header.addClass('bg-yellow-400');
+        else header.addClass('bg-blue-500');
+        
+        modal.removeClass('hidden');
+        
+        $('#responseModalOK, #responseModalClose').off('click').on('click', () => {
+          modal.addClass('hidden');
+        });
+      }
+      
+      function showConfirm(title, message, callback) {
+        const modal = $('#confirmModal');
+        
+        $('#confirmModalTitle').text(title);
+        $('#confirmModalBody').html(message.replace(/\n/g, '<br>'));
+        
+        modal.removeClass('hidden');
+        
+        $('#confirmModalOK').off('click');
+        $('#confirmModalCancel, #confirmModalClose').off('click');
+        
+        $('#confirmModalOK').on('click', function() {
+          modal.addClass('hidden');
+          if (callback) callback(true);
+        });
+        
+        $('#confirmModalCancel, #confirmModalClose').on('click', function() {
+          modal.addClass('hidden');
+        });
+      }
+  
+      function loadEmployees() {
+        google.script.run
+          .withSuccessHandler(function(list) {
+            const sel = $('#ledgerEmployeeSelect');
+            sel.empty();
+            sel.append('<option></option>');
+            list.forEach(function(emp) {
+              sel.append(`<option value="${emp.id}" data-position="${emp.position}" data-office="${emp.office}">${emp.fullName}</option>`);
+            });
+            sel.select2({
+              placeholder: 'Select an employee to view their ledger',
+              width:'100%',
+              allowClear: true
+            });
+          })
+          .withFailureHandler(function(err) {
+            showModal('Error Loading Employees', err.message || err, 'danger');
+          })
+          .apiListEmployees(true);
+      }
+
+      function getExpirationMeta(rawDate, diffOverride) {
+        const sanitized = (rawDate || '').toString().trim();
+        if (!sanitized || sanitized === 'N/A' || sanitized === '—') {
+          return {
+            label: 'No expiration data',
+            className: 'text-slate-400',
+            diffText: '—',
+            diffClass: 'text-slate-400',
+            diffValue: null
+          };
+        }
+
+        let diff = null;
+        if (diffOverride !== undefined && diffOverride !== null && diffOverride !== '') {
+          const parsedDiff = Number(diffOverride);
+          diff = Number.isNaN(parsedDiff) ? null : parsedDiff;
+        }
+
+        function parseFlexibleDate(value) {
+          if (!value) return null;
+          const normalized = value
+            .replace(/[\u2012-\u2015]/g, '-')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+          const direct = new Date(normalized);
+          if (!Number.isNaN(direct.getTime())) {
+            return direct;
+          }
+
+          const delimiter = normalized.includes('/') ? '/' : (normalized.includes('-') ? '-' : null);
+          if (!delimiter) return null;
+
+          const segments = normalized.split(delimiter).map(part => part.trim());
+          if (segments.length !== 3) return null;
+
+          const numbers = segments.map(part => Number(part));
+          const numericSegments = numbers.every(num => !Number.isNaN(num));
+
+          let year;
+          let month;
+          let day;
+
+          if (numericSegments && segments[0].length === 4) {
+            year = numbers[0];
+            month = numbers[1];
+            day = numbers[2];
+          } else if (numericSegments && segments[2].length === 4) {
+            year = numbers[2];
+            const first = numbers[0];
+            const second = numbers[1];
+
+            if (first > 12 && second <= 12) {
+              day = first;
+              month = second;
+            } else if (second > 12 && first <= 12) {
+              month = first;
+              day = second;
+            } else {
+              month = first;
+              day = second;
+            }
+          } else {
+            return null;
+          }
+
+          if (month === undefined || day === undefined || year === undefined) return null;
+
+          if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+          const candidate = new Date(year, month - 1, day);
+          return Number.isNaN(candidate.getTime()) ? null : candidate;
+        }
+
+        const parsedDate = parseFlexibleDate(sanitized);
+        if (diff === null && parsedDate) {
+          const today = new Date();
+          parsedDate.setHours(0, 0, 0, 0);
+          today.setHours(0, 0, 0, 0);
+          diff = Math.floor((parsedDate - today) / 86400000);
+        }
+
+        if (diff === null) {
+          return {
+            label: `To expire on ${sanitized}`,
+            className: 'text-slate-500',
+            diffText: '—',
+            diffClass: 'text-slate-400',
+            diffValue: null
+          };
+        }
+
+        let label;
+        let className;
+        let diffClass;
+
+        if (diff < 0) {
+          label = `Expired on ${sanitized}`;
+          className = 'text-red-600 font-semibold';
+          diffClass = 'text-red-600 font-bold';
+        } else if (diff === 0) {
+          label = `Expires today (${sanitized})`;
+          className = 'text-red-600 font-semibold';
+          diffClass = 'text-red-600 font-bold';
+        } else if (diff <= 30) {
+          label = `Expires on ${sanitized} (${diff}d left)`;
+          className = 'text-red-600 font-semibold';
+          diffClass = 'text-red-600 font-bold';
+        } else if (diff <= 90) {
+          label = `To expire on ${sanitized} (${diff}d)`;
+          className = 'text-amber-500 font-semibold';
+          diffClass = 'text-amber-500 font-semibold';
+        } else {
+          label = `To expire on ${sanitized} (${diff}d)`;
+          className = 'text-slate-500';
+          diffClass = 'text-slate-500';
+        }
+
+        return {
+          label,
+          className,
+          diffText: diff.toString(),
+          diffClass,
+          diffValue: diff
+        };
+      }
+
+      // === FIXED viewLedger Function ===
+function viewLedger() {
+  const empId = $('#ledgerEmployeeSelect').val();
+  if (!empId) {
+    showModal('Validation Error', 'Please select an employee.', 'warning');
+    return;
+  }
+  
+  console.log('=== viewLedger called for empId:', empId);
+  
+  $('#viewLedgerBtnText').text('Loading...');
+  $('#viewLedgerSpinner').removeClass('hidden');
+  $('#viewLedgerBtn').prop('disabled', true);
+  $('#exportLedgerBtn').prop('disabled', true);
+  $('#ledgerContent').addClass('hidden');
+  
+  $('#ledgerBody, #fifoBreakdownBody, #pendingCTOBody').empty();
+  $('#ledgerBodyEmpty, #fifoBreakdownEmpty, #pendingCTOEmpty').removeClass('hidden');
+
+  // CRITICAL FIX: Better error handling and logging
+  const ledgerPromise = new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(function(result) {
+        console.log('=== LEDGER RESULT ===');
+        console.log('Raw result:', result);
+        console.log('Result type:', typeof result);
+        console.log('Is null?', result === null);
+        console.log('Is undefined?', result === undefined);
+        
+        // CRITICAL FIX: Handle all possible return formats
+        if (!result) {
+          console.warn('❌ Ledger returned null/undefined');
+          resolve({ balance: 0, entries: [] });
+          return;
+        }
+        
+        // Check if result has the expected structure
+        if (typeof result === 'object') {
+          console.log('✓ Result is object');
+          console.log('Has balance property?', result.hasOwnProperty('balance'));
+          console.log('Balance value:', result.balance);
+          console.log('Has entries property?', result.hasOwnProperty('entries'));
+          console.log('Entries length:', result.entries ? result.entries.length : 'N/A');
+          
+          // CRITICAL FIX: Ensure we always return a valid object
+          const validResult = {
+            balance: typeof result.balance === 'number' ? result.balance : 0,
+            entries: Array.isArray(result.entries) ? result.entries : []
+          };
+          
+          console.log('✓ Returning valid result:', validResult);
+          resolve(validResult);
+        } else {
+          console.error('❌ Unexpected result format:', result);
+          resolve({ balance: 0, entries: [] });
+        }
+      })
+      .withFailureHandler(function(error) {
+        console.error('❌ LEDGER ERROR:', error);
+        reject(new Error('Failed to load ledger: ' + (error.message || error)));
+      })
+      .apiGetLedger(empId);
+  });
+  
+  const breakdownPromise = new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(function(result) {
+        console.log('=== BREAKDOWN RESULT ===');
+        console.log('Result:', result);
+        console.log('Length:', result ? result.length : 0);
+        
+        // CRITICAL FIX: Always return array
+        const validResult = Array.isArray(result) ? result : [];
+        resolve(validResult);
+      })
+      .withFailureHandler(function(error) {
+        console.error('❌ BREAKDOWN ERROR:', error);
+        reject(new Error('Failed to load breakdown: ' + (error.message || error)));
+      })
+      .apiGetCOCBalanceBreakdown(empId);
+  });
+  
+  const ctoPromise = new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(function(result) {
+        console.log('=== CTO RESULT ===');
+        console.log('Result:', result);
+        console.log('Length:', result ? result.length : 0);
+        
+        // CRITICAL FIX: Always return array
+        const validResult = Array.isArray(result) ? result : [];
+        resolve(validResult);
+      })
+      .withFailureHandler(function(error) {
+        console.error('❌ CTO ERROR:', error);
+        reject(new Error('Failed to load CTOs: ' + (error.message || error)));
+      })
+      .apiGetEmployeeCTOApplications(empId);
+  });
+
+  Promise.all([ledgerPromise, breakdownPromise, ctoPromise])
+    .then(([ledgerRes, breakdownRes, ctoRes]) => {
+      
+      console.log('=== ALL DATA LOADED ===');
+      console.log('Ledger balance:', ledgerRes.balance);
+      console.log('Ledger entries:', ledgerRes.entries.length);
+      console.log('Breakdown entries:', breakdownRes.length);
+      console.log('CTO entries:', ctoRes.length);
+
+      window.currentLedger = ledgerRes;
+      window.currentBreakdown = breakdownRes;
+      window.currentPending = ctoRes;
+
+      // Populate UI
+      const selected = $('#ledgerEmployeeSelect option:selected');
+      $('#ledgerEmployeeName').text(selected.text());
+      $('#ledgerEmployeeInfo').text(`${selected.data('position')} - ${selected.data('office')}`);
+      
+      // CRITICAL FIX: More robust balance handling
+      const balance = parseFloat(ledgerRes.balance) || 0;
+      console.log('Setting balance to:', balance);
+      $('#ledgerBalance').text(balance.toFixed(2));
+      
+      // Calculate expiring soon
+      let expiringSoon = 0;
+      if (breakdownRes && breakdownRes.length > 0) {
+        expiringSoon = breakdownRes
+          .filter(b => b.daysUntilExpiration <= 90 && b.daysUntilExpiration >= 0)
+          .reduce((sum, b) => sum + (parseFloat(b.hoursRemaining) || 0), 0);
+      }
+      console.log('Setting expiring soon to:', expiringSoon);
+      $('#ledgerExpiringSoon').text(expiringSoon.toFixed(2));
+
+      // Populate FIFO Breakdown
+      if (breakdownRes && breakdownRes.length > 0) {
+        const fifoBody = $('#fifoBreakdownBody');
+        breakdownRes.forEach(b => {
+          const expiryMeta = getExpirationMeta(b.expirationDate, b.daysUntilExpiration);
+          const remainingHours = (parseFloat(b.hoursRemaining) || 0).toFixed(2);
+
+          const row = `
+            <tr class="text-sm">
+              <td class="py-2 px-3">${b.dateEarned}</td>
+              <td class="py-2 px-3 font-medium">${remainingHours}</td>
+              <td class="py-2 px-3 ${expiryMeta.className}">${expiryMeta.label}</td>
+              <td class="py-2 px-3 ${expiryMeta.diffClass}">${expiryMeta.diffText}</td>
+            </tr>
+          `;
+          fifoBody.append(row);
+        });
+        $('#fifoBreakdownEmpty').addClass('hidden');
+        console.log('✓ FIFO breakdown populated');
+      } else {
+        console.log('⚠ No FIFO breakdown entries');
+      }
+
+      // Populate Pending CTOs
+      const pendingCTOs = ctoRes.filter(c => c.status === 'Pending');
+      if (pendingCTOs.length > 0) {
+        const pendingBody = $('#pendingCTOBody');
+        pendingCTOs.forEach(c => {
+          const dateRange = c.startDate === c.endDate ? c.startDate : `${c.startDate} to ${c.endDate}`;
+          const row = `
+            <tr class="text-sm">
+              <td class="py-2 px-3">${dateRange}</td>
+              <td class="py-2 px-3 font-medium">${(parseFloat(c.hours) || 0).toFixed(2)}</td>
+              <td class="py-2 px-3 truncate" title="${c.remarks || ''}">${c.remarks || 'N/A'}</td>
+            </tr>
+          `;
+          pendingBody.append(row);
+        });
+        $('#pendingCTOEmpty').addClass('hidden');
+        console.log('✓ Pending CTOs populated:', pendingCTOs.length);
+      } else {
+        console.log('⚠ No pending CTOs');
+      }
+      
+      // Populate Ledger Table
+      if (ledgerRes.entries && ledgerRes.entries.length > 0) {
+        const tbody = $('#ledgerBody');
+        console.log('Processing', ledgerRes.entries.length, 'ledger entries...');
+        
+        ledgerRes.entries.forEach((item, index) => {
+          try {
+            const tr = $('<tr class="text-sm hover:bg-gray-50"></tr>');
+            
+            // Date
+            tr.append(`<td class="py-3 px-4 whitespace-nowrap">${item.transactionDate || 'N/A'}</td>`);
+            
+            // Transaction Type Badge
+            let badgeClass = 'bg-gray-100 text-gray-800';
+            if (item.transactionType === 'COC Earned') badgeClass = 'bg-green-100 text-green-800';
+            else if (item.transactionType === 'CTO Used') badgeClass = 'bg-red-100 text-red-800';
+            else if (item.transactionType === 'Initial Balance') badgeClass = 'bg-blue-100 text-blue-800';
+            else if (item.transactionType === 'COC Cancelled' || item.transactionType === 'CTO Cancelled' || item.transactionType === 'COC Expired') badgeClass = 'bg-yellow-100 text-yellow-800';
+            
+            let transText = `<span class="px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${badgeClass}">${item.transactionType || 'Unknown'}</span>`;
+            transText += `<br><small class="text-gray-500">${item.referenceId || ''}</small>`;
+            tr.append(`<td>${transText}</td>`);
+            
+            // Remarks
+            const remarks = item.remarks || '';
+            tr.append(`<td class="py-3 px-4 text-xs text-gray-600 max-w-xs truncate" title="${remarks}">${remarks}</td>`);
+            
+            // Hours (+/-)
+            const cocEarned = parseFloat(item.cocEarned) || 0;
+            const ctoUsed = parseFloat(item.ctoUsed) || 0;
+            const hours = cocEarned - ctoUsed;
+            
+            let hoursText = '0.00';
+            let hoursClass = 'text-gray-500';
+            if (hours > 0) {
+              hoursText = `+${hours.toFixed(2)}`;
+              hoursClass = 'text-green-600 font-semibold';
+            } else if (hours < 0) {
+              hoursText = `${hours.toFixed(2)}`;
+              hoursClass = 'text-red-600 font-semibold';
+            }
+            tr.append(`<td class="py-3 px-4 whitespace-nowrap font-mono ${hoursClass}">${hoursText}</td>`);
+            
+            // Balance
+            const balanceText = (item.cocBalance !== undefined && item.cocBalance !== null) 
+              ? parseFloat(item.cocBalance).toFixed(2) 
+              : 'N/A';
+            tr.append(`<td class="py-3 px-4 whitespace-nowrap font-mono font-bold text-gray-700">${balanceText}</td>`);
+
+            // Expiration Date
+            const entryExpiry = getExpirationMeta(item.expirationDate);
+            tr.append(`<td class="py-3 px-4 whitespace-nowrap text-xs ${entryExpiry.className}">${entryExpiry.label}</td>`);
+
+            tbody.append(tr);
+            
+          } catch (itemError) {
+            console.error('Error processing entry', index, ':', itemError, item);
+          }
+        });
+        
+        $('#ledgerBodyEmpty').addClass('hidden');
+        console.log('✓ Transaction history populated:', ledgerRes.entries.length, 'entries');
+      } else {
+        console.log('⚠ No ledger entries to display');
+      }
+      
+      // Show content and enable buttons
+      $('#ledgerContent').removeClass('hidden');
+      $('#exportLedgerBtn').prop('disabled', false);
+      
+      console.log('=== UI UPDATE COMPLETE ===');
+    })
+    .catch(error => {
+      console.error('❌ PROMISE ERROR:', error);
+      showModal('Error Loading Ledger', error.message || error, 'danger');
+    })
+    .finally(() => {
+      $('#viewLedgerBtnText').text('View Ledger');
+      $('#viewLedgerSpinner').addClass('hidden');
+      $('#viewLedgerBtn').prop('disabled', false);
+      console.log('=== viewLedger function completed ===');
+    });
+}
+
+
+      function onCancelSuccess() {
+        showModal('Success', 'Transaction cancelled successfully. The ledger is refreshing.', 'success');
+        viewLedger();
+      }
+      function onCancelError(err) {
+        showModal('Error', err.message || err, 'danger');
+      }
+      
+      function exportLedger() {
+        const ledgerData = window.currentLedger;
+        const breakdownData = window.currentBreakdown || [];
+        const pendingData = window.currentPending || [];
+        if (!ledgerData) return;
+        
+        const selected = $('#ledgerEmployeeSelect option:selected');
+        const empName = selected.text();
+        const empPos = selected.data('position');
+        const empOffice = selected.data('office');
+        const empBalance = ledgerData.balance.toFixed(2);
+        const expiringSoon = ($('#ledgerExpiringSoon').text() || '0.00');
+        
+        const wb = XLSX.utils.book_new();
+        
+        const wsSummaryData = [
+          ['Employee Name:', empName],
+          ['Position:', empPos],
+          ['Office/Division:', empOffice],
+          [],
+          ['Current COC Balance:', empBalance + ' hours'],
+          ['Expiring in 90 Days:', expiringSoon + ' hours']
+        ];
+        const wsSummary = XLSX.utils.aoa_to_sheet(wsSummaryData);
+        wsSummary['!cols'] = [{ wch: 20 }, { wch: 40 }];
+        XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+        
+        const wsLedgerData = [];
+        wsLedgerData.push(['Date', 'Transaction Type', 'Reference ID', 'Details/Remarks', 'COC Earned', 'CTO Used', 'Net Change', 'Running Balance', 'Expiration Date']);
+        
+        ledgerData.entries.forEach(function(item) {
+          const hours = (item.cocEarned || 0) - (item.ctoUsed || 0);
+          wsLedgerData.push([
+            item.transactionDate,
+            item.transactionType,
+            item.referenceId,
+            item.remarks || '',
+            item.cocEarned || 0,
+            item.ctoUsed || 0,
+            hours,
+            item.cocBalance,
+            item.expirationDate || ''
+          ]);
+        });
+        const wsLedger = XLSX.utils.aoa_to_sheet(wsLedgerData);
+        wsLedger['!cols'] = [
+          { wch: 12 }, { wch: 18 }, { wch: 20 }, { wch: 40 }, 
+          { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }
+        ];
+        XLSX.utils.book_append_sheet(wb, wsLedger, 'Transaction Ledger');
+        
+        const wsBreakdownData = [];
+        wsBreakdownData.push(['Date Earned', 'Hours Remaining', 'Expiration Date', 'Days Left', 'Record ID', 'Entry ID']);
+        breakdownData.forEach(b => {
+          wsBreakdownData.push([
+            b.dateEarned,
+            b.hoursRemaining,
+            b.expirationDate,
+            b.daysUntilExpiration,
+            b.recordId,
+            b.entryId
+          ]);
+        });
+        const wsBreakdown = XLSX.utils.aoa_to_sheet(wsBreakdownData);
+        wsBreakdown['!cols'] = [{ wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 10 }, { wch: 20 }, { wch: 20 }];
+        XLSX.utils.book_append_sheet(wb, wsBreakdown, 'Active Balance (FIFO)');
+        
+        const wsPendingData = [];
+        wsPendingData.push(['Start Date', 'End Date', 'Hours', 'Remarks', 'Status']);
+        pendingData.forEach(c => {
+           wsPendingData.push([
+            c.startDate,
+            c.endDate,
+            c.hours,
+            c.remarks || '',
+            c.status
+          ]);
+        });
+        const wsPending = XLSX.utils.aoa_to_sheet(wsPendingData);
+        wsPending['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 40 }, { wch: 10 }];
+        XLSX.utils.book_append_sheet(wb, wsPending, 'Pending CTOs');
+        
+        const empId = $('#ledgerEmployeeSelect').val();
+        const now = new Date();
+        const fileName = `COC_Ledger_${empId}_${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}.xlsx`;
+        const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        saveAs(new Blob([wbout], { type: 'application/octet-stream' }), fileName);
+      }
+      
+      function initializeApp() {
+        loadEmployees();
+        $('#viewLedgerBtn').on('click', viewLedger);
+        $('#exportLedgerBtn').on('click', exportLedger);
+      }
+      
+      function startAppWhenReady() {
+        if (typeof google !== 'undefined' && google.script && google.script.run) {
+          initializeApp();
+        } else {
+          setTimeout(startAppWhenReady, 100);
+        }
+      }
+      
+      startAppWhenReady();
+      
+    };
+  </script>
+
+
+  <script>
+    // Back to Dashboard function
+    function backToDashboard() {
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run.navigateToPage('Dashboard');
+      } else {
+        window.location.href = 'dashboard_no_sidebar.html';
+      }
+    }
+  </script>
+
+</body>
+</html>
