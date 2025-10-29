@@ -1,0 +1,236 @@
+// -----------------------------------------------------------------------------
+// API_Ledger.gs
+//
+// Contains all API functions related to balances, the ledger,
+// and expiration logic.
+// -----------------------------------------------------------------------------
+
+/**
+ * Get employee's current COC balance
+ * This reads from the COC_Ledger to get the most recent balance
+ *
+ * @param {string} empId - Employee ID (e.g., "EMP008")
+ * @returns {number} Current COC balance in hours
+ */
+function apiGetBalance(empId) {
+  try {
+    // Use the correct spreadsheet ID
+    let ss;
+    if (typeof CONFIG !== 'undefined' && CONFIG.SPREADSHEET_ID) {
+      ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+    } else if (typeof SPREADSHEET_ID !== 'undefined') {
+      ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    } else {
+      // Fallback or default ID
+      const SPREADSHEET_ID = '1LIQRnQb7lL-6hdSpsOwq-XVwRM6Go6u4q6RkSB2ZCXo';
+      ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    }
+
+    // Read from COC_Ledger sheet (NOT COC_Balance_Detail)
+    const ledgerSheet = ss.getSheetByName('COC_Ledger');
+
+    if (!ledgerSheet) {
+      Logger.log('COC_Ledger sheet not found');
+      return 0;
+    }
+
+    const data = ledgerSheet.getDataRange().getValues();
+    const headers = data[0];
+
+    // Find column indices
+    const empIdCol = headers.indexOf('Employee ID');
+    const transDateCol = headers.indexOf('Transaction Date');
+    const balanceCol = headers.indexOf('Balance After'); // Use the correct header name
+
+    if (empIdCol === -1 || balanceCol === -1 || transDateCol === -1) {
+      Logger.log('Required columns not found in COC_Ledger');
+      return 0;
+    }
+
+    // Find the most recent transaction for this employee
+    let latestBalance = 0;
+    let latestDate = null;
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+
+      if (row[empIdCol] === empId) {
+        const transDate = new Date(row[transDateCol]);
+        const balance = parseFloat(row[balanceCol]) || 0;
+
+        if (!latestDate || transDate > latestDate) {
+          latestDate = transDate;
+          latestBalance = balance;
+        }
+      }
+    }
+
+    Logger.log('Balance for ' + empId + ': ' + latestBalance);
+    return latestBalance;
+
+  } catch (error) {
+    Logger.log('Error in apiGetBalance: ' + error.toString());
+    return 0;
+  }
+}
+
+/**
+ * Alternative: Get balance from COC_Balance_Detail (FIFO method)
+ * Use this if you want to calculate from remaining hours in detail sheet
+ */
+function apiGetBalanceFromDetail(empId) {
+  try {
+    let ss;
+    if (typeof CONFIG !== 'undefined' && CONFIG.SPREADSHEET_ID) {
+      ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+    } else if (typeof SPREADSHEET_ID !== 'undefined') {
+      ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    } else {
+      // Fallback or default ID
+      const SPREADSHEET_ID = '1LIQRnQb7lL-6hdSpsOwq-XVwRM6Go6u4q6RkSB2ZCXo';
+      ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    }
+
+    const detailSheet = ss.getSheetByName('COC_Balance_Detail');
+
+    if (!detailSheet) {
+      Logger.log('COC_Balance_Detail sheet not found');
+      return 0;
+    }
+
+    const data = detailSheet.getDataRange().getValues();
+    const headers = data[0];
+
+    const empIdCol = headers.indexOf('Employee ID');
+    const hoursRemainingCol = headers.indexOf('Hours Remaining');
+    const statusCol = headers.indexOf('Status');
+
+    if (empIdCol === -1 || hoursRemainingCol === -1) {
+      Logger.log('Required columns not found in COC_Balance_Detail');
+      return 0;
+    }
+
+    let totalBalance = 0;
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+
+      if (row[empIdCol] === empId) {
+        const status = row[statusCol];
+        // Only count Active entries
+        if (status === 'Active') {
+          const hoursRemaining = parseFloat(row[hoursRemainingCol]) || 0;
+          totalBalance += hoursRemaining;
+        }
+      }
+    }
+
+    Logger.log('Balance from detail for ' + empId + ': ' + totalBalance);
+    return totalBalance;
+
+  } catch (error) {
+    Logger.log('Error in apiGetBalanceFromDetail: ' + error.toString());
+    return 0;
+  }
+}
+
+/**
+ * API: Get COC balance breakdown
+ */
+function apiGetCOCBalanceBreakdown(employeeId) {
+  try {
+    // This function is a wrapper. The core logic is assumed to be
+    // in another file (e.g., Ledger.gs or Logic.gs).
+    const breakdown = getCOCBalanceBreakdown(employeeId);
+
+    // Convert to serializable format
+    const safeBreakdown = [];
+
+    if (breakdown && Array.isArray(breakdown)) {
+      breakdown.forEach(function (item) {
+        safeBreakdown.push({
+          entryId: String(item.entryId || ''),
+          recordId: String(item.recordId || ''),
+          dateEarned: String(item.dateEarned || ''),
+          hoursEarned: parseFloat(item.hoursEarned) || 0,
+          hoursRemaining: parseFloat(item.hoursRemaining) || 0,
+          expirationDate: String(item.expirationDate || ''),
+          daysUntilExpiration: parseInt(item.daysUntilExpiration) || 0
+        });
+      });
+    }
+
+    return safeBreakdown;
+
+  } catch (error) {
+    Logger.log('ERROR in apiGetCOCBalanceBreakdown: ' + error.message);
+    return [];
+  }
+}
+
+/**
+ * API: Get Ledger for a specific employee
+ */
+function apiGetLedger(employeeId) {
+  try {
+    // This function is a wrapper. The core logic is assumed to be
+    // in another file (e.g., Ledger.gs or Logic.gs).
+    const result = getLedgerForEmployee(employeeId);
+
+    // Convert to serializable format
+    const safeResult = {
+      balance: parseFloat(result.balance) || 0,
+      entries: []
+    };
+
+    if (result.entries && Array.isArray(result.entries)) {
+      result.entries.forEach(function (entry) {
+        safeResult.entries.push({
+          ledgerId: String(entry.ledgerId || ''),
+          employeeId: String(entry.employeeId || ''),
+          employeeName: String(entry.employeeName || ''),
+          transactionDate: String(entry.transactionDate || ''),
+          transactionType: String(entry.transactionType || ''),
+          referenceId: String(entry.referenceId || ''),
+          cocEarned: parseFloat(entry.cocEarned) || 0,
+          ctoUsed: parseFloat(entry.ctoUsed) || 0,
+          cocBalance: parseFloat(entry.cocBalance) || 0,
+          monthYearEarned: String(entry.monthYearEarned || ''),
+          expirationDate: String(entry.expirationDate || ''),
+          processedBy: String(entry.processedBy || ''),
+          remarks: String(entry.remarks || '')
+        });
+      });
+    }
+
+    return safeResult;
+
+  } catch (error) {
+    Logger.log('ERROR in apiGetLedger: ' + error.message);
+    return {
+      balance: 0,
+      entries: []
+    };
+  }
+}
+
+/**
+ * API wrapper for recent ledger activity. Accepts an optional limit.
+ *
+ * @param {number} limit Maximum number of records to return.
+ * @return {Array<Object>} Recent activities.
+ */
+function apiGetRecentActivities(limit) {
+  // This function is a wrapper. The core logic is assumed to be
+  // in another file (e.g., Ledger.gs or Logic.gs).
+  return getRecentActivities(limit);
+}
+
+/**
+ * API: Check expired COC
+ */
+function apiCheckAndExpireCOC() {
+  // This function is a wrapper. The core logic is assumed to be
+  // in another file (e.g., Expiration.gs or Logic.gs).
+  return checkAndExpireCOC();
+}
