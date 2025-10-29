@@ -1,0 +1,1511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Employee Manager v2.2</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    window.CURRENT_PAGE = 'employee-manager';
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.0/font/bootstrap-icons.min.css" rel="stylesheet" />
+
+  <style>
+    body {
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+      background: #f8f9fa;
+      padding: 15px;
+    }
+    .employee-list {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      padding: 10px;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .employee-item {
+      padding: 10px;
+      border-bottom: 1px solid #e9ecef;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .employee-item:hover {
+      background: #f8f9fa;
+    }
+    .employee-item.active {
+      background: #e9f2ff;
+      border-left: 3px solid #0d6efd;
+    }
+    .employee-form {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    .section-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e9ecef;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    /* ✅ v2.2: Auto-uppercase */
+    .text-uppercase-input {
+      text-transform: uppercase;
+    }
+    
+    /* ✅ v2.2: RED Error Messages */
+    .error-message,
+    .text-danger,
+    #cocValidationMessage,
+    #issueDateHint.error,
+    #editValidationMessage {
+      color: #dc3545 !important;
+      font-size: 1rem !important;
+      font-weight: 500 !important;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .error-message::before,
+    .text-danger::before {
+      content: "❌";
+      font-size: 1.2rem;
+    }
+    
+    /* ✅ v2.2: Lock Warning Banner */
+    .lock-warning {
+      background-color: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 15px;
+      margin-bottom: 20px;
+      border-radius: 4px;
+      display: flex;
+      align-items: start;
+      gap: 12px;
+    }
+    
+    .lock-warning i {
+      font-size: 1.5rem;
+      color: #856404;
+      margin-top: 2px;
+    }
+    
+    .lock-warning-content h6 {
+      color: #856404;
+      font-weight: 600;
+      margin: 0 0 8px 0;
+    }
+    
+    .lock-warning-content p {
+      margin: 0;
+      color: #664d03;
+      font-size: 0.95rem;
+    }
+    
+    /* Locked Badge */
+    .badge.locked {
+      background-color: #6c757d;
+      padding: 6px 10px;
+      font-size: 0.85rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    
+    /* Custom searchable select */
+    .searchable-select-wrapper {
+      position: relative;
+    }
+    .searchable-select-search {
+      width: 100%;
+      padding: 0.375rem 2.25rem 0.375rem 0.75rem;
+      border: 1px solid #dee2e6;
+      border-radius: 0.375rem;
+      cursor: pointer;
+    }
+    .searchable-select-search:focus {
+      border-color: #86b7fe;
+      outline: 0;
+      box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+    }
+    .searchable-select-dropdown {
+      display: none;
+      position: absolute;
+      z-index: 1000;
+      width: 100%;
+      max-height: 200px;
+      overflow-y: auto;
+      background: white;
+      border: 1px solid #dee2e6;
+      border-radius: 0.375rem;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-top: 2px;
+    }
+    .searchable-select-dropdown.show {
+      display: block;
+    }
+    .searchable-select-search-input {
+      width: 100%;
+      padding: 8px;
+      border: none;
+      border-bottom: 1px solid #dee2e6;
+      outline: none;
+    }
+    .searchable-select-option {
+      padding: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .searchable-select-option:hover {
+      background: #f8f9fa;
+    }
+    .searchable-select-option.selected {
+      background: #e9f2ff;
+      color: #0d6efd;
+    }
+    
+    /* COC History Table */
+    .coc-history-table {
+      font-size: 0.9rem;
+    }
+    .coc-history-table th {
+      background: #f8f9fa;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.5px;
+    }
+    .coc-history-table td {
+      vertical-align: middle;
+    }
+    .table-hover tbody tr:hover {
+      background-color: #f8f9fa;
+    }
+    
+    /* Action buttons in table */
+    .btn-action {
+      padding: 0.25rem 0.5rem;
+      font-size: 0.75rem;
+      margin: 0 2px;
+    }
+    
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      .employee-form {
+        padding: 15px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container-fluid">
+    <h4 class="mb-4">
+      <i class="bi bi-people-fill"></i> Employee Manager
+      <span class="badge bg-info ms-2">v2.2</span>
+    </h4>
+    
+    <div class="row">
+      <!-- Left: Employee List (Card 1) -->
+      <div class="col-md-4">
+        <div class="mb-3">
+          <button class="btn btn-success w-100" id="addNewBtn">
+            <i class="bi bi-person-plus"></i> Add New Employee
+          </button>
+        </div>
+        <input type="text" id="searchBox" class="form-control mb-2" placeholder="🔍 Search employees...">
+        <div id="employeeList" class="employee-list">
+          <div class="text-center p-3">
+            <div class="spinner-border spinner-border-sm text-primary" role="status">
+              <span class="visually-hidden">Loading...</span>
+            </div>
+            <div class="mt-2 text-muted small">Loading employees...</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Right: Employee Form and COC Records -->
+      <div class="col-md-8">
+        
+        <!-- Employee Details Form -->
+        <div class="employee-form">
+          <div class="section-title" id="formTitle">
+            <i class="bi bi-person-badge"></i> <span id="formTitleText">Add Employee</span>
+          </div>
+          
+          <div class="row g-3">
+            <!-- Employee Details Fields -->
+            <div class="col-md-6">
+              <label class="form-label">Last Name *</label>
+              <input type="text" id="lastName" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">First Name *</label>
+              <input type="text" id="firstName" class="form-control" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Middle Initial</label>
+              <input type="text" id="middleInitial" class="form-control" maxlength="2" placeholder="A">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Suffix</label>
+              <select id="suffix" class="form-select">
+                <option value="">None</option>
+                <option value="Jr.">Jr.</option>
+                <option value="Sr.">Sr.</option>
+                <option value="II">II</option>
+                <option value="III">III</option>
+                <option value="IV">IV</option>
+                <option value="V">V</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Status</label>
+              <select id="status" class="form-select">
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+              </select>
+            </div>
+            
+            <!-- Position (Custom Searchable Select) -->
+            <div class="col-md-6">
+              <label class="form-label">Position *</label>
+              <div class="searchable-select-wrapper">
+                <input type="text" 
+                       id="positionDisplay" 
+                       class="searchable-select-search" 
+                       placeholder="Select or search position..."
+                       readonly
+                       required>
+                <input type="hidden" id="position">
+                <div id="positionDropdown" class="searchable-select-dropdown">
+                  <input type="text" 
+                         id="positionSearch" 
+                         class="searchable-select-search-input" 
+                         placeholder="Search positions...">
+                  <div id="positionOptions"></div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Office (Custom Searchable Select) -->
+            <div class="col-md-6">
+              <label class="form-label">Office/Division *</label>
+              <div class="searchable-select-wrapper">
+                <input type="text" 
+                       id="officeDisplay" 
+                       class="searchable-select-search" 
+                       placeholder="Select or search office..."
+                       readonly
+                       required>
+                <input type="hidden" id="office">
+                <div id="officeDropdown" class="searchable-select-dropdown">
+                  <input type="text" 
+                         id="officeSearch" 
+                         class="searchable-select-search-input" 
+                         placeholder="Search offices...">
+                  <div id="officeOptions"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="mt-4 d-flex justify-content-end gap-2">
+            <button type="button" class="btn btn-secondary" id="cancelBtn">
+              <i class="bi bi-x-circle"></i> Cancel
+            </button>
+            <button type="button" class="btn btn-primary" id="saveBtn">
+              <i class="bi bi-save"></i> <span id="saveBtnText">Save Employee</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- ✅ Card 2 - COC Records (Always shown) -->
+        <div class="employee-form mt-3" id="cocRecordsCard">
+          <div class="section-title">
+            <i class="bi bi-calendar3"></i> Historical COC Records
+          </div>
+          
+          <!-- ✅ v2.2: Lock Warning Banner (shown when locked) -->
+          <div id="lockWarningBanner" class="lock-warning" style="display:none;">
+            <i class="bi bi-lock-fill"></i>
+            <div class="lock-warning-content">
+              <h6>Historical Records Locked</h6>
+              <p>This employee has active COC recording. Historical records cannot be modified. For corrections, please contact the system administrator.</p>
+            </div>
+          </div>
+          
+          <!-- Part 2A: Add Historical COC Record Form -->
+          <div class="card mb-3" id="addCocRecordCard">
+            <div class="card-header bg-primary text-white">
+              <h6 class="mb-0">
+                <i class="bi bi-plus-circle"></i> Add Historical COC Record
+              </h6>
+            </div>
+            <div class="card-body">
+              <div class="alert alert-info" role="alert">
+                <i class="bi bi-info-circle"></i>
+                <strong>Rules:</strong>
+                <ul class="mb-0 mt-2">
+                  <li>Maximum 40 hours per month</li>
+                  <li>Total balance cannot exceed 120 hours</li>
+                  <li>Issue date must be on or after the last day of the month</li>
+                  <li>Cannot have duplicate month-year entries</li>
+                </ul>
+              </div>
+              
+              <div class="row g-3">
+                <div class="col-md-3">
+                  <label class="form-label">Month *</label>
+                  <select id="cocMonth" class="form-select" required>
+                    <option value="">Select month...</option>
+                    <option value="1">January</option>
+                    <option value="2">February</option>
+                    <option value="3">March</option>
+                    <option value="4">April</option>
+                    <option value="5">May</option>
+                    <option value="6">June</option>
+                    <option value="7">July</option>
+                    <option value="8">August</option>
+                    <option value="9">September</option>
+                    <option value="10">October</option>
+                    <option value="11">November</option>
+                    <option value="12">December</option>
+                  </select>
+                </div>
+                
+                <div class="col-md-3">
+                  <label class="form-label">Year *</label>
+                  <input type="number" id="cocYear" class="form-control" 
+                         min="2020" max="2030" placeholder="2025" required>
+                </div>
+                
+                <div class="col-md-3">
+                  <label class="form-label">COC Earned (hrs) *</label>
+                  <input type="number" id="cocEarned" class="form-control" 
+                         min="0" max="40" step="0.25" placeholder="10.00" required>
+                  <small class="text-muted">Max: 40 hrs/month</small>
+                </div>
+                
+                <div class="col-md-3">
+                  <label class="form-label">COC Used (hrs)</label>
+                  <input type="number" id="cocUsed" class="form-control" 
+                         min="0" step="0.25" placeholder="0.00" value="0">
+                </div>
+                
+                <div class="col-md-6">
+                  <label class="form-label">Date of Issuance *</label>
+                  <input type="date" id="cocIssueDate" class="form-control" required>
+                  <small id="issueDateHint" class="text-muted">Must be on or after last day of month</small>
+                </div>
+                
+                <div class="col-md-6 d-flex align-items-end">
+                  <button type="button" id="addCocRecordBtn" class="btn btn-primary w-100">
+                    <i class="bi bi-plus-circle"></i> Add Record
+                  </button>
+                </div>
+              </div>
+              
+              <!-- Validation Alert -->
+              <div id="cocValidationAlert" class="alert alert-danger mt-3" style="display:none;">
+                <div id="cocValidationMessage" class="error-message"></div>
+              </div>
+              
+              <!-- Success Alert -->
+              <div id="cocSuccessAlert" class="alert alert-success mt-3" style="display:none;">
+                <i class="bi bi-check-circle"></i> 
+                <span id="cocSuccessMessage"></span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Part 2B: COC History Table -->
+          <div class="card">
+            <div class="card-header bg-info text-white">
+              <h6 class="mb-0">
+                <i class="bi bi-table"></i> COC History
+              </h6>
+            </div>
+            <div class="card-body">
+              <div class="table-responsive">
+                <table class="table table-sm table-hover table-bordered coc-history-table">
+                  <thead class="table-light">
+                    <tr>
+                      <th>MONTH</th>
+                      <th>YEAR</th>
+                      <th class="text-end">COC EARNED</th>
+                      <th class="text-end">USED</th>
+                      <th class="text-end">REMAINING</th>
+                      <th>DATE OF ISSUANCE</th>
+                      <th>VALID UNTIL</th>
+                      <th class="text-center" id="actionsHeader">ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cocHistoryTableBody">
+                    <tr>
+                      <td colspan="8" class="text-center text-muted py-4">
+                        <i class="bi bi-inbox"></i><br>
+                        Add COC records using the form above
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- END Card 2 -->
+        
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for alerts -->
+  <div class="modal fade" id="responseModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header" id="modalHeader">
+          <h5 class="modal-title text-white" id="modalTitle">Result</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" id="modalBody"></div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" data-bs-dismiss="modal">OK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Confirmation Modal -->
+  <div class="modal fade" id="confirmModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header bg-danger text-white">
+          <h5 class="modal-title">
+            <i class="bi bi-exclamation-triangle"></i> Confirm Delete
+          </h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" id="confirmModalBody"></div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-danger" id="confirmDeleteBtn">
+            <i class="bi bi-trash"></i> Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ✅ v2.2: EDIT MODAL -->
+  <div class="modal fade" id="editCocModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header bg-warning text-dark">
+          <h5 class="modal-title">
+            <i class="bi bi-pencil-square"></i> Edit Historical COC Record
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-info" role="alert">
+            <i class="bi bi-info-circle"></i>
+            <strong>Edit Rules:</strong>
+            <ul class="mb-0 mt-2">
+              <li>Cannot reduce COC Earned below hours already used</li>
+              <li>Maximum 40 hours per month</li>
+              <li>Total balance cannot exceed 120 hours</li>
+              <li>Issue date must be on or after the last day of the month</li>
+            </ul>
+          </div>
+          
+          <input type="hidden" id="editCertificateId">
+          
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label class="form-label">Month *</label>
+              <select id="editCocMonth" class="form-select" required>
+                <option value="">Select month...</option>
+                <option value="1">January</option>
+                <option value="2">February</option>
+                <option value="3">March</option>
+                <option value="4">April</option>
+                <option value="5">May</option>
+                <option value="6">June</option>
+                <option value="7">July</option>
+                <option value="8">August</option>
+                <option value="9">September</option>
+                <option value="10">October</option>
+                <option value="11">November</option>
+                <option value="12">December</option>
+              </select>
+            </div>
+            
+            <div class="col-md-3">
+              <label class="form-label">Year *</label>
+              <input type="number" id="editCocYear" class="form-control" 
+                     min="2020" max="2030" required>
+            </div>
+            
+            <div class="col-md-3">
+              <label class="form-label">COC Earned (hrs) *</label>
+              <input type="number" id="editCocEarned" class="form-control" 
+                     min="0" max="40" step="0.25" required>
+              <small class="text-muted">Max: 40 hrs/month</small>
+            </div>
+            
+            <div class="col-md-3">
+              <label class="form-label">COC Used (hrs)</label>
+              <input type="number" id="editCocUsed" class="form-control" 
+                     min="0" step="0.25" value="0">
+              <small id="editUsedHint" class="text-muted">Current used: 0</small>
+            </div>
+            
+            <div class="col-md-12">
+              <label class="form-label">Date of Issuance *</label>
+              <input type="date" id="editCocIssueDate" class="form-control" required>
+              <small id="editIssueDateHint" class="text-muted">Must be on or after last day of month</small>
+            </div>
+          </div>
+          
+          <!-- Edit Validation Alert -->
+          <div id="editValidationAlert" class="alert alert-danger mt-3" style="display:none;">
+            <div id="editValidationMessage" class="error-message"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-warning" id="updateCocRecordBtn">
+            <i class="bi bi-save"></i> Update Record
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Library Scripts -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+    // =============================================================================
+    // GLOBAL VARIABLES
+    // =============================================================================
+    let employees = [];
+    let currentId = null;
+    let dropdownOptions = { positions: [], offices: [] };
+    let isEmployeeLocked = false; // ✅ v2.2: Lock status
+
+    // =============================================================================
+    // UTILITY FUNCTIONS
+    // =============================================================================
+    
+    function showModal(title, message, type) {
+      $('#modalTitle').text(title);
+      $('#modalBody').html(message.replace(/\n/g, '<br>'));
+      const headerClass = type === 'success' ? 'bg-success' : type === 'danger' ? 'bg-danger' : 'bg-warning';
+      $('#modalHeader').removeClass('bg-success bg-danger bg-warning').addClass(headerClass);
+      new bootstrap.Modal($('#responseModal')[0]).show();
+    }
+    
+    function showConfirmModal(message, onConfirm) {
+      $('#confirmModalBody').html(message);
+      const modal = new bootstrap.Modal($('#confirmModal')[0]);
+      
+      $('#confirmDeleteBtn').off('click').on('click', function() {
+        modal.hide();
+        onConfirm();
+      });
+      
+      modal.show();
+    }
+
+    /**
+     * ✅ v2.2: Format date for display (MM/DD/YYYY)
+     */
+    function formatDateForDisplay(dateStr) {
+      if (!dateStr) return '';
+      
+      // If already in MM/DD/YYYY format
+      if (dateStr.includes('/')) return dateStr;
+      
+      // Parse YYYY-MM-DD or other formats
+      const date = new Date(dateStr);
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const year = date.getFullYear();
+      
+      return month + '/' + day + '/' + year;
+    }
+    
+    /**
+     * ✅ v2.2: Format date for input (YYYY-MM-DD)
+     */
+    function formatDateForInput(dateStr) {
+      if (!dateStr) return '';
+      
+      // If already in YYYY-MM-DD format
+      if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) return dateStr;
+      
+      // Parse MM/DD/YYYY
+      const parts = dateStr.split('/');
+      if (parts.length === 3) {
+        const [month, day, year] = parts;
+        return year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
+      }
+      
+      // Fallback: parse and format
+      const date = new Date(dateStr);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      
+      return year + '-' + month + '-' + day;
+    }
+
+    function clearForm() {
+      currentId = null;
+      isEmployeeLocked = false;
+      $('#formTitleText').text('Add Employee');
+      $('#lastName').val('');
+      $('#firstName').val('');
+      $('#middleInitial').val('');
+      $('#suffix').val('');
+      $('#status').val('Active');
+      $('#positionDisplay').val('');
+      $('#position').val('');
+      $('#officeDisplay').val('');
+      $('#office').val('');
+      $('#saveBtnText').text('Save Employee');
+      
+      // Reset COC form
+      $('#cocMonth').val('');
+      $('#cocYear').val(new Date().getFullYear());
+      $('#cocEarned').val('');
+      $('#cocUsed').val('0');
+      const today = new Date().toISOString().split('T')[0];
+      $('#cocIssueDate').val(today);
+      
+      $('#cocValidationAlert').hide();
+      $('#cocSuccessAlert').hide();
+      $('#lockWarningBanner').hide();
+      $('#addCocRecordCard').show();
+      $('#actionsHeader').text('ACTIONS');
+      
+      // Clear COC history table
+      $('#cocHistoryTableBody').html(`
+        <tr>
+          <td colspan="8" class="text-center text-muted py-4">
+            <i class="bi bi-inbox"></i><br>
+            Add COC records using the form above
+          </td>
+        </tr>
+      `);
+      
+      $('#cocRecordsCard').show();
+      
+      renderList(employees);
+    }
+
+    // =============================================================================
+    // SEARCHABLE SELECT FUNCTIONS
+    // =============================================================================
+    
+    function initSearchableSelects() {
+      $('#positionDisplay').on('click', function() {
+        $('#positionDropdown').toggleClass('show');
+        $('#officeDropdown').removeClass('show');
+        setTimeout(() => $('#positionSearch').focus(), 100);
+      });
+
+      $('#positionSearch').on('input', function() {
+        filterOptions('position', $(this).val());
+      });
+
+      $('#officeDisplay').on('click', function() {
+        $('#officeDropdown').toggleClass('show');
+        $('#positionDropdown').removeClass('show');
+        setTimeout(() => $('#officeSearch').focus(), 100);
+      });
+
+      $('#officeSearch').on('input', function() {
+        filterOptions('office', $(this).val());
+      });
+
+      $(document).on('click', function(e) {
+        if (!$(e.target).closest('.searchable-select-wrapper').length) {
+          $('.searchable-select-dropdown').removeClass('show');
+        }
+      });
+    }
+
+    function populateOptions(type, options) {
+      const container = $(`#${type}Options`);
+      container.empty();
+      
+      options.forEach(opt => {
+        const div = $('<div class="searchable-select-option"></div>')
+          .text(opt)
+          .on('click', function() {
+            $(`#${type}Display`).val(opt);
+            $(`#${type}`).val(opt);
+            $(`#${type}Dropdown`).removeClass('show');
+            $(this).addClass('selected').siblings().removeClass('selected');
+          });
+        container.append(div);
+      });
+    }
+
+    function filterOptions(type, searchTerm) {
+      const options = dropdownOptions[type + 's'];
+      const filtered = options.filter(opt => 
+        opt.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      populateOptions(type, filtered);
+    }
+
+    // =============================================================================
+    // ✅ v2.2: COC HISTORY FUNCTIONS (Updated)
+    // =============================================================================
+    
+    /**
+     * ✅ v2.2: Load COC history with lock status
+     */
+    function loadCocHistory(employeeId) {
+      if (!employeeId) {
+        $('#cocHistoryTableBody').html(`
+          <tr>
+            <td colspan="8" class="text-center text-muted py-4">
+              <i class="bi bi-inbox"></i><br>
+              Add COC records using the form above
+            </td>
+          </tr>
+        `);
+        return;
+      }
+      
+      $('#cocHistoryTableBody').html(`
+        <tr>
+          <td colspan="8" class="text-center py-3">
+            <div class="spinner-border spinner-border-sm text-primary"></div>
+            <span class="ms-2">Loading COC history...</span>
+          </td>
+        </tr>
+      `);
+      
+      google.script.run
+        .withSuccessHandler(function(history) {
+          if (!history || history.length === 0) {
+            $('#cocHistoryTableBody').html(`
+              <tr>
+                <td colspan="8" class="text-center text-muted py-4">
+                  <i class="bi bi-inbox"></i><br>
+                  No historical COC records found.
+                </td>
+              </tr>
+            `);
+            return;
+          }
+          
+          // ✅ v2.2: Check lock status from first record
+          const locked = history[0].isLocked || false;
+          isEmployeeLocked = locked;
+          
+          // ✅ v2.2: Update UI based on lock status
+          if (locked) {
+            $('#lockWarningBanner').show();
+            $('#addCocRecordCard').hide();
+            $('#actionsHeader').text('STATUS');
+          } else {
+            $('#lockWarningBanner').hide();
+            $('#addCocRecordCard').show();
+            $('#actionsHeader').text('ACTIONS');
+          }
+          
+          let html = '';
+          history.forEach(record => {
+            const remainingNum = parseFloat(record.remaining);
+            const remainingClass = remainingNum > 0 ? 'text-success' : 'text-muted';
+            
+            // ✅ v2.2: Format dates as MM/DD/YYYY
+            const issueDate = formatDateForDisplay(record.issueDate);
+            const validUntil = formatDateForDisplay(record.validUntil);
+            
+            html += `
+              <tr>
+                <td class="text-uppercase-input">${record.month}</td>
+                <td class="text-uppercase-input">${record.year}</td>
+                <td class="text-end">${record.earned} hrs</td>
+                <td class="text-end">${record.used} hrs</td>
+                <td class="text-end ${remainingClass}">
+                  <strong>${record.remaining} hrs</strong>
+                </td>
+                <td>${issueDate}</td>
+                <td>${validUntil}</td>
+                <td class="text-center">
+            `;
+            
+            // ✅ v2.2: Show buttons or locked badge
+            if (locked) {
+              html += `<span class="badge locked"><i class="bi bi-lock-fill"></i> Locked</span>`;
+            } else {
+              html += `
+                <button class="btn btn-sm btn-warning btn-action" 
+                        onclick="editCocRecord('${record.certificateId}')">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <button class="btn btn-sm btn-danger btn-action" 
+                        onclick="deleteCocRecord('${record.certificateId}', '${record.month} ${record.year}')">
+                  <i class="bi bi-trash"></i>
+                </button>
+              `;
+            }
+            
+            html += `
+                </td>
+              </tr>
+            `;
+          });
+          
+          $('#cocHistoryTableBody').html(html);
+        })
+        .withFailureHandler(function(err) {
+          console.error('Error loading COC history:', err);
+          $('#cocHistoryTableBody').html(`
+            <tr>
+              <td colspan="8" class="text-center text-danger py-3">
+                <i class="bi bi-exclamation-circle"></i>
+                Error loading history: ${err.message || err}
+              </td>
+            </tr>
+          `);
+        })
+        .apiGetEmployeeCocHistory(employeeId);
+    }
+    
+    /**
+     * ✅ v2.2: Validate COC record form
+     */
+    function validateCocRecordForm() {
+      const month = parseInt($('#cocMonth').val());
+      const year = parseInt($('#cocYear').val());
+      const earned = parseFloat($('#cocEarned').val()) || 0;
+      const used = parseFloat($('#cocUsed').val()) || 0;
+      const issueDate = $('#cocIssueDate').val();
+      
+      $('#cocValidationAlert').hide();
+      
+      if (!month || !year || !earned || !issueDate) {
+        $('#cocValidationAlert').show();
+        $('#cocValidationMessage').html('Please fill out all required fields (marked with *)');
+        return false;
+      }
+      
+      if (earned > 40) {
+        $('#cocValidationAlert').show();
+        $('#cocValidationMessage').html('Each employee may accrue not more than 40 hours of COCs in a month');
+        return false;
+      }
+      
+      if (earned <= 0) {
+        $('#cocValidationAlert').show();
+        $('#cocValidationMessage').html('COC Earned must be greater than 0');
+        return false;
+      }
+      
+      if (used > earned) {
+        $('#cocValidationAlert').show();
+        $('#cocValidationMessage').html('COC Used cannot exceed COC Earned');
+        return false;
+      }
+      
+      if (year < 2020 || year > 2030) {
+        $('#cocValidationAlert').show();
+        $('#cocValidationMessage').html('Year must be between 2020 and 2030');
+        return false;
+      }
+      
+      // Check issue date
+      const issueDateObj = new Date(issueDate);
+      const lastDayOfMonth = new Date(year, month, 0);
+      
+      if (issueDateObj < lastDayOfMonth) {
+        const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June', 
+                            'July', 'August', 'September', 'October', 'November', 'December'];
+        const lastDay = lastDayOfMonth.getDate();
+        $('#cocValidationAlert').show();
+        $('#cocValidationMessage').html(
+          `Date of Issuance cannot be earlier than the last day of the month (${monthNames[month]} ${lastDay}, ${year})`
+        );
+        // ✅ v2.2: Also update hint to RED
+        $('#issueDateHint').addClass('error').html(
+          `❌ Must be on or after ${monthNames[month]} ${lastDay}, ${year}`
+        );
+        return false;
+      }
+      
+      return true;
+    }
+
+
+    /**
+     * ✅ v2.2: Add COC record
+     */
+    function addCocRecord() {
+      if (!currentId) {
+        showModal('Error', 'Please save the employee first before adding COC records', 'warning');
+        return;
+      }
+      
+      // ✅ v2.2: Check if locked
+      if (isEmployeeLocked) {
+        showModal('Error', 'Cannot add historical records because this employee has active COC recording.', 'danger');
+        return;
+      }
+      
+      if (!validateCocRecordForm()) return;
+      
+      const recordObject = {
+        month: parseInt($('#cocMonth').val()),
+        year: parseInt($('#cocYear').val()),
+        earned: parseFloat($('#cocEarned').val()),
+        used: parseFloat($('#cocUsed').val()) || 0,
+        issueDate: $('#cocIssueDate').val()
+      };
+      
+      $('#addCocRecordBtn').prop('disabled', true).html(`
+        <span class="spinner-border spinner-border-sm"></span> Adding...
+      `);
+      
+      $('#cocValidationAlert').hide();
+      $('#cocSuccessAlert').hide();
+      
+      google.script.run
+        .withSuccessHandler(function(response) {
+          $('#addCocRecordBtn').prop('disabled', false).html(`
+            <i class="bi bi-plus-circle"></i> Add Record
+          `);
+          
+          if (response.success) {
+            $('#cocSuccessAlert').show();
+            $('#cocSuccessMessage').text('Historical COC record added successfully!');
+            
+            // Clear form
+            $('#cocMonth').val('');
+            $('#cocEarned').val('');
+            $('#cocUsed').val('0');
+            const today = new Date().toISOString().split('T')[0];
+            $('#cocIssueDate').val(today);
+            $('#issueDateHint').removeClass('error').html('Must be on or after last day of month');
+            
+            setTimeout(() => {
+              $('#cocSuccessAlert').fadeOut();
+            }, 3000);
+            
+            loadCocHistory(currentId);
+          } else {
+            $('#cocValidationAlert').show();
+            $('#cocValidationMessage').html(response.message || 'Failed to add record');
+          }
+        })
+        .withFailureHandler(function(err) {
+          $('#addCocRecordBtn').prop('disabled', false).html(`
+            <i class="bi bi-plus-circle"></i> Add Record
+          `);
+          $('#cocValidationAlert').show();
+          $('#cocValidationMessage').html(err.message || err);
+        })
+        .apiAddHistoricalCocRecord(currentId, recordObject);
+    }
+    
+    /**
+     * ✅ v2.2: NEW - Edit COC record
+     */
+    function editCocRecord(certificateId) {
+      if (isEmployeeLocked) {
+        showModal('Error', 'Cannot edit historical records because this employee has active COC recording.', 'danger');
+        return;
+      }
+      
+      // Find the record in the table
+      google.script.run
+        .withSuccessHandler(function(history) {
+          const record = history.find(r => r.certificateId === certificateId);
+          if (!record) {
+            showModal('Error', 'Record not found', 'danger');
+            return;
+          }
+          
+          // Populate edit modal
+          $('#editCertificateId').val(certificateId);
+          $('#editCocMonth').val(record.monthNum);
+          $('#editCocYear').val(record.year);
+          $('#editCocEarned').val(parseFloat(record.earned));
+          $('#editCocUsed').val(parseFloat(record.used));
+          
+          // ✅ v2.2: Format date for input (YYYY-MM-DD)
+          const issueDateFormatted = formatDateForInput(record.issueDate);
+          $('#editCocIssueDate').val(issueDateFormatted);
+          
+          $('#editUsedHint').html(`Current used: ${record.used} hrs`);
+          $('#editValidationAlert').hide();
+          
+          // Update hint for edit modal
+          updateEditIssueDateHint();
+          
+          // Show modal
+          new bootstrap.Modal($('#editCocModal')[0]).show();
+        })
+        .withFailureHandler(function(err) {
+          showModal('Error', err.message || err, 'danger');
+        })
+        .apiGetEmployeeCocHistory(currentId);
+    }
+    
+    /**
+     * ✅ v2.2: NEW - Update COC record
+     */
+    function updateCocRecord() {
+      const certificateId = $('#editCertificateId').val();
+      
+      if (!validateEditCocRecordForm()) return;
+      
+      const updateData = {
+        month: parseInt($('#editCocMonth').val()),
+        year: parseInt($('#editCocYear').val()),
+        earned: parseFloat($('#editCocEarned').val()),
+        used: parseFloat($('#editCocUsed').val()) || 0,
+        issueDate: $('#editCocIssueDate').val()
+      };
+      
+      $('#updateCocRecordBtn').prop('disabled', true).html(`
+        <span class="spinner-border spinner-border-sm"></span> Updating...
+      `);
+      
+      $('#editValidationAlert').hide();
+      
+      google.script.run
+        .withSuccessHandler(function(response) {
+          $('#updateCocRecordBtn').prop('disabled', false).html(`
+            <i class="bi bi-save"></i> Update Record
+          `);
+          
+          if (response.success) {
+            bootstrap.Modal.getInstance($('#editCocModal')[0]).hide();
+            showModal('Success', 'COC record updated successfully!', 'success');
+            loadCocHistory(currentId);
+          } else {
+            $('#editValidationAlert').show();
+            $('#editValidationMessage').html(response.message || 'Failed to update record');
+          }
+        })
+        .withFailureHandler(function(err) {
+          $('#updateCocRecordBtn').prop('disabled', false).html(`
+            <i class="bi bi-save"></i> Update Record
+          `);
+          $('#editValidationAlert').show();
+          $('#editValidationMessage').html(err.message || err);
+        })
+        .apiUpdateHistoricalCocRecord(certificateId, updateData);
+    }
+    
+    /**
+     * ✅ v2.2: NEW - Validate edit form
+     */
+    function validateEditCocRecordForm() {
+      const month = parseInt($('#editCocMonth').val());
+      const year = parseInt($('#editCocYear').val());
+      const earned = parseFloat($('#editCocEarned').val()) || 0;
+      const used = parseFloat($('#editCocUsed').val()) || 0;
+      const issueDate = $('#editCocIssueDate').val();
+      
+      $('#editValidationAlert').hide();
+      
+      if (!month || !year || !earned || !issueDate) {
+        $('#editValidationAlert').show();
+        $('#editValidationMessage').html('Please fill out all required fields (marked with *)');
+        return false;
+      }
+      
+      if (earned > 40) {
+        $('#editValidationAlert').show();
+        $('#editValidationMessage').html('Each employee may accrue not more than 40 hours of COCs in a month');
+        return false;
+      }
+      
+      if (earned <= 0) {
+        $('#editValidationAlert').show();
+        $('#editValidationMessage').html('COC Earned must be greater than 0');
+        return false;
+      }
+      
+      if (used > earned) {
+        $('#editValidationAlert').show();
+        $('#editValidationMessage').html('COC Used cannot exceed COC Earned');
+        return false;
+      }
+      
+      if (year < 2020 || year > 2030) {
+        $('#editValidationAlert').show();
+        $('#editValidationMessage').html('Year must be between 2020 and 2030');
+        return false;
+      }
+      
+      // Check issue date
+      const issueDateObj = new Date(issueDate);
+      const lastDayOfMonth = new Date(year, month, 0);
+      
+      if (issueDateObj < lastDayOfMonth) {
+        const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June', 
+                            'July', 'August', 'September', 'October', 'November', 'December'];
+        const lastDay = lastDayOfMonth.getDate();
+        $('#editValidationAlert').show();
+        $('#editValidationMessage').html(
+          `Date of Issuance cannot be earlier than the last day of the month (${monthNames[month]} ${lastDay}, ${year})`
+        );
+        $('#editIssueDateHint').addClass('error').html(
+          `❌ Must be on or after ${monthNames[month]} ${lastDay}, ${year}`
+        );
+        return false;
+      }
+      
+      return true;
+    }
+    
+    /**
+     * ✅ v2.2: Delete COC record
+     */
+    function deleteCocRecord(certificateId, monthYear) {
+      if (isEmployeeLocked) {
+        showModal('Error', 'Cannot delete historical records because this employee has active COC recording.', 'danger');
+        return;
+      }
+      
+      showConfirmModal(
+        `<p>Are you sure you want to delete the COC record for <strong>${monthYear}</strong>?</p>
+         <p class="text-danger"><i class="bi bi-exclamation-triangle"></i> This action cannot be undone.</p>`,
+        function() {
+          $('#cocHistoryTableBody').html(`
+            <tr>
+              <td colspan="8" class="text-center py-3">
+                <div class="spinner-border spinner-border-sm text-danger"></div>
+                <span class="ms-2">Deleting...</span>
+              </td>
+            </tr>
+          `);
+          
+          google.script.run
+            .withSuccessHandler(function(response) {
+              if (response.success) {
+                showModal('Success', 'COC record deleted successfully', 'success');
+                loadCocHistory(currentId);
+              } else {
+                showModal('Error', response.message || 'Failed to delete record', 'danger');
+                loadCocHistory(currentId);
+              }
+            })
+            .withFailureHandler(function(err) {
+              showModal('Error', err.message || err, 'danger');
+              loadCocHistory(currentId);
+            })
+            .apiDeleteHistoricalCocRecord(certificateId);
+        }
+      );
+    }
+    
+    /**
+     * ✅ v2.2: Update issue date hint for ADD form
+     */
+    function updateIssueDateHint() {
+      const month = parseInt($('#cocMonth').val());
+      const year = parseInt($('#cocYear').val());
+      
+      if (month && year) {
+        const lastDayOfMonth = new Date(year, month, 0);
+        const lastDay = lastDayOfMonth.getDate();
+        const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June', 
+                            'July', 'August', 'September', 'October', 'November', 'December'];
+        
+        // ✅ v2.2: Show in normal style (not error yet)
+        $('#issueDateHint').removeClass('error').css('color', '#6c757d').html(
+          `Must be on or after <strong>${monthNames[month]} ${lastDay}, ${year}</strong>`
+        );
+      } else {
+        $('#issueDateHint').removeClass('error').css('color', '#6c757d').html('Must be on or after last day of month');
+      }
+    }
+    
+    /**
+     * ✅ v2.2: Update issue date hint for EDIT form
+     */
+    function updateEditIssueDateHint() {
+      const month = parseInt($('#editCocMonth').val());
+      const year = parseInt($('#editCocYear').val());
+      
+      if (month && year) {
+        const lastDayOfMonth = new Date(year, month, 0);
+        const lastDay = lastDayOfMonth.getDate();
+        const monthNames = ['', 'January', 'February', 'March', 'April', 'May', 'June', 
+                            'July', 'August', 'September', 'October', 'November', 'December'];
+        
+        $('#editIssueDateHint').removeClass('error').css('color', '#6c757d').html(
+          `Must be on or after <strong>${monthNames[month]} ${lastDay}, ${year}</strong>`
+        );
+      } else {
+        $('#editIssueDateHint').removeClass('error').css('color', '#6c757d').html('Must be on or after last day of month');
+      }
+    }
+
+    // =============================================================================
+    // EMPLOYEE LIST FUNCTIONS
+    // =============================================================================
+    
+    function loadEmployees() {
+      google.script.run
+        .withSuccessHandler(function(data) {
+          employees = data;
+          renderList(employees);
+        })
+        .withFailureHandler(function(err) {
+          $('#employeeList').html(`
+            <div class="alert alert-danger">
+              <i class="bi bi-exclamation-circle"></i> Failed to load employees: ${err.message || err}
+            </div>
+          `);
+        })
+        .apiListEmployees(true);
+    }
+
+    function renderList(list) {
+      if (list.length === 0) {
+        $('#employeeList').html(`
+          <div class="text-center p-3 text-muted">
+            <i class="bi bi-inbox"></i><br>
+            No employees found
+          </div>
+        `);
+        return;
+      }
+      
+      let html = '';
+      list.forEach(emp => {
+        const activeClass = currentId === emp.id ? 'active' : '';
+        const statusBadge = emp.status === 'Active' 
+          ? '<span class="badge bg-success">Active</span>' 
+          : '<span class="badge bg-secondary">Inactive</span>';
+        
+        html += `
+          <div class="employee-item ${activeClass}" data-id="${emp.id}">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <strong>${emp.fullName}</strong>
+                <div class="small text-muted">${emp.position}</div>
+                <div class="small text-muted">${emp.office}</div>
+              </div>
+              <div>${statusBadge}</div>
+            </div>
+          </div>
+        `;
+      });
+      
+      $('#employeeList').html(html);
+    }
+
+    function loadEmployeeForEdit(empId) {
+      currentId = empId;
+      const emp = employees.find(e => e.id === empId);
+      if (!emp) return;
+      
+      $('#formTitleText').text('Edit Employee: ' + emp.fullName);
+      
+      $('#lastName').val(emp.lastName);
+      $('#firstName').val(emp.firstName);
+      $('#middleInitial').val(emp.middleInitial || '');
+      $('#suffix').val(emp.suffix || '');
+      $('#position').val(emp.position);
+      $('#positionDisplay').val(emp.position);
+      $('#office').val(emp.office);
+      $('#officeDisplay').val(emp.office);
+      $('#status').val(emp.status);
+      $('#saveBtnText').text('Update Employee');
+      
+      $('#cocRecordsCard').show();
+      loadCocHistory(empId);
+      
+      $('html, body').animate({ scrollTop: 0 }, 300);
+      
+      renderList(employees);
+    }
+
+    // =============================================================================
+    // SAVE EMPLOYEE FUNCTION
+    // =============================================================================
+    
+    function saveEmployee() {
+      if (!$('#lastName').val() || !$('#firstName').val() || !$('#position').val() || !$('#office').val()) {
+        showModal('Validation Error', 'Please fill out all required fields (marked with *)', 'warning');
+        return;
+      }
+      
+      const data = {
+        lastName: $('#lastName').val().trim(),
+        firstName: $('#firstName').val().trim(),
+        middleInitial: $('#middleInitial').val().trim(),
+        suffix: $('#suffix').val(),
+        position: $('#position').val(),
+        office: $('#office').val(),
+        status: $('#status').val()
+      };
+      
+      $('#saveBtn').prop('disabled', true).html(`
+        <span class="spinner-border spinner-border-sm"></span> Saving...
+      `);
+      
+      if (currentId) {
+        google.script.run
+          .withSuccessHandler(function(result) {
+            $('#saveBtn').prop('disabled', false).html(`
+              <i class="bi bi-save"></i> Update Employee
+            `);
+            
+            if (result.success) {
+              showModal('Success', 'Employee updated successfully!', 'success');
+              loadEmployees();
+            } else {
+              showModal('Error', result.message || 'Failed to update employee', 'danger');
+            }
+          })
+          .withFailureHandler(function(err) {
+            $('#saveBtn').prop('disabled', false).html(`
+              <i class="bi bi-save"></i> Update Employee
+            `);
+            showModal('Error', err.message || err, 'danger');
+          })
+          .apiUpdateEmployee(currentId, data);
+      } else {
+        google.script.run
+          .withSuccessHandler(function(result) {
+            $('#saveBtn').prop('disabled', false).html(`
+              <i class="bi bi-save"></i> Save Employee
+            `);
+            
+            if (result.success) {
+              currentId = result.employeeId;
+              
+              showModal('Success', 'Employee added successfully! You can now add COC records.', 'success');
+              
+              $('#formTitleText').text('Edit Employee');
+              $('#saveBtnText').text('Update Employee');
+              
+              loadEmployees();
+              loadCocHistory(currentId);
+            } else {
+              showModal('Error', result.message || 'Failed to add employee', 'danger');
+            }
+          })
+          .withFailureHandler(function(err) {
+            $('#saveBtn').prop('disabled', false).html(`
+              <i class="bi bi-save"></i> Save Employee
+            `);
+            showModal('Error', err.message || err, 'danger');
+          })
+          .apiAddEmployee(data);
+      }
+    }
+
+
+    // =============================================================================
+    // EVENT HANDLERS
+    // =============================================================================
+    
+    $(document).ready(function() {
+      // Load initial data
+      loadEmployees();
+      
+      // Load dropdown options
+      google.script.run
+        .withSuccessHandler(function(options) {
+          dropdownOptions = options;
+          populateOptions('position', options.positions);
+          populateOptions('office', options.offices);
+        })
+        .apiGetDropdownOptions();
+      
+      // Initialize searchable selects
+      initSearchableSelects();
+      
+      // Employee list click
+      $(document).on('click', '.employee-item', function() {
+        const empId = $(this).data('id');
+        loadEmployeeForEdit(empId);
+      });
+      
+      // Add new button
+      $('#addNewBtn').on('click', clearForm);
+      
+      // Cancel button
+      $('#cancelBtn').on('click', clearForm);
+      
+      // Save button
+      $('#saveBtn').on('click', saveEmployee);
+      
+      // Search box
+      $('#searchBox').on('input', function() {
+        const term = $(this).val().toLowerCase();
+        if (!term) {
+          renderList(employees);
+          return;
+        }
+        
+        const filtered = employees.filter(emp => 
+          emp.fullName.toLowerCase().includes(term) ||
+          emp.position.toLowerCase().includes(term) ||
+          emp.office.toLowerCase().includes(term) ||
+          emp.id.toLowerCase().includes(term)
+        );
+        renderList(filtered);
+      });
+      
+      // ✅ v2.2: COC Record form events
+      $('#addCocRecordBtn').on('click', addCocRecord);
+      $('#updateCocRecordBtn').on('click', updateCocRecord);
+      
+      // Clear validation alerts when user types
+      $('#cocMonth, #cocYear, #cocEarned, #cocUsed, #cocIssueDate').on('change', function() {
+        $('#cocValidationAlert').fadeOut();
+      });
+      
+      $('#editCocMonth, #editCocYear, #editCocEarned, #editCocUsed, #editCocIssueDate').on('change', function() {
+        $('#editValidationAlert').fadeOut();
+      });
+      
+      // ✅ v2.2: Update issue date hint when month/year changes
+      $('#cocMonth, #cocYear').on('change', updateIssueDateHint);
+      $('#editCocMonth, #editCocYear').on('change', updateEditIssueDateHint);
+      
+      // ✅ v2.2: Set default values
+      const currentYear = new Date().getFullYear();
+      $('#cocYear').val(currentYear);
+      const today = new Date().toISOString().split('T')[0];
+      $('#cocIssueDate').val(today);
+    });
+    
+    // ✅ v2.2: Make functions globally available
+    window.editCocRecord = editCocRecord;
+    window.deleteCocRecord = deleteCocRecord;
+  </script>
+</body>
+</html>
