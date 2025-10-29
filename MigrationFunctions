@@ -1,0 +1,240 @@
+// -----------------------------------------------------------------------------
+// MigrationFunctions.gs
+// Data Migration Utilities
+// -----------------------------------------------------------------------------
+
+/**
+ * MIGRATION: Populates MONTH_YEAR column for all COC_Records that have it empty.
+ * This is needed because older records were created without the MONTH_YEAR column,
+ * and the new apiListCOCRecordsForMonth function filters by this column.
+ *
+ * IMPORTANT: Sets the column format to PLAIN TEXT to prevent auto-conversion to dates!
+ *
+ * Run this function once to migrate old data.
+ */
+function migrateCOCRecordsMonthYear() {
+  try {
+    const db = SpreadsheetApp.openById(DATABASE_ID);
+    const recordsSheet = db.getSheetByName('COC_Records');
+
+    if (!recordsSheet) {
+      Logger.log('COC_Records sheet not found');
+      return { success: false, message: 'COC_Records sheet not found' };
+    }
+
+    // CRITICAL FIX: Set the MONTH_YEAR column (Column D) to PLAIN TEXT format
+    // This prevents Google Sheets from auto-converting "2025-10" to a Date object
+    const monthYearColumnIndex = RECORD_COLS.MONTH_YEAR + 1; // Convert to 1-based
+    const lastRow = recordsSheet.getLastRow();
+
+    if (lastRow > 1) {
+      const monthYearRange = recordsSheet.getRange(2, monthYearColumnIndex, lastRow - 1, 1);
+      monthYearRange.setNumberFormat('@STRING@'); // Force plain text format
+      Logger.log(`Set column ${monthYearColumnIndex} (MONTH_YEAR) to PLAIN TEXT format for rows 2-${lastRow}`);
+    }
+
+    const data = recordsSheet.getDataRange().getValues();
+    let updatedCount = 0;
+    let fixedCount = 0;
+
+    Logger.log(`Starting migration. Total rows: ${data.length}`);
+
+    // Start from row 2 (index 1) to skip header
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const monthYearValue = row[RECORD_COLS.MONTH_YEAR];
+      const dateRendered = row[RECORD_COLS.DATE_RENDERED];
+
+      let needsUpdate = false;
+      let newMonthYear = null;
+
+      // Case 1: MONTH_YEAR is empty
+      if (!monthYearValue && dateRendered) {
+        const date = new Date(dateRendered);
+        if (!isNaN(date.getTime())) {
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          newMonthYear = `${year}-${month}`;
+          needsUpdate = true;
+          Logger.log(`Row ${i + 1}: EMPTY - Set to ${newMonthYear} from date ${date}`);
+        }
+      }
+      // Case 2: MONTH_YEAR is a Date object (should be a string)
+      else if (monthYearValue instanceof Date) {
+        const date = new Date(monthYearValue);
+        if (!isNaN(date.getTime())) {
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          newMonthYear = `${year}-${month}`;
+          needsUpdate = true;
+          fixedCount++;
+          Logger.log(`Row ${i + 1}: DATE OBJECT - Convert to ${newMonthYear}`);
+        }
+      }
+      // Case 3: MONTH_YEAR is in wrong format (MM-YYYY instead of YYYY-MM)
+      else if (typeof monthYearValue === 'string') {
+        const trimmed = monthYearValue.trim();
+        // Check if it matches MM-YYYY format (e.g., "10-2025")
+        const mmYyyyMatch = trimmed.match(/^(\d{2})-(\d{4})$/);
+        if (mmYyyyMatch) {
+          const month = mmYyyyMatch[1];
+          const year = mmYyyyMatch[2];
+          newMonthYear = `${year}-${month}`;
+          needsUpdate = true;
+          fixedCount++;
+          Logger.log(`Row ${i + 1}: WRONG FORMAT "${trimmed}" - Fix to ${newMonthYear}`);
+        }
+        // If it's already in YYYY-MM format, skip
+        else if (trimmed.match(/^\d{4}-\d{2}$/)) {
+          Logger.log(`Row ${i + 1}: Already correct format: ${trimmed}`);
+        }
+        // Unknown format - try to fix from date
+        else if (dateRendered) {
+          const date = new Date(dateRendered);
+          if (!isNaN(date.getTime())) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            newMonthYear = `${year}-${month}`;
+            needsUpdate = true;
+            fixedCount++;
+            Logger.log(`Row ${i + 1}: UNKNOWN FORMAT "${trimmed}" - Fix to ${newMonthYear} from date`);
+          }
+        }
+      }
+
+      // Update the cell if needed
+      if (needsUpdate && newMonthYear) {
+        // Set as plain text with single quote prefix to FORCE text format
+        recordsSheet.getRange(i + 1, monthYearColumnIndex).setValue("'" + newMonthYear);
+        updatedCount++;
+      }
+    }
+
+    Logger.log(`Migration completed. Updated ${updatedCount} records (${fixedCount} were format fixes).`);
+    return {
+      success: true,
+      updatedCount: updatedCount,
+      fixedCount: fixedCount
+    };
+
+  } catch (e) {
+    Logger.log(`Error in migrateCOCRecordsMonthYear: ${e}`);
+    return { success: false, message: e.message };
+  }
+}
+
+
+/**
+ * ONE-TIME MIGRATION: Convert existing Initial Balance entries to detail entries
+ * Run this ONCE after deploying the new code
+ */
+function migrateExistingInitialBalances() {
+  const db = getDatabase();
+  const ledgerSheet = db.getSheetByName('COC_Ledger');
+  const detailSheet = ensureCOCBalanceDetailSheet();
+
+  if (!ledgerSheet) throw new Error('COC_Ledger sheet not found');
+
+  const ledgerData = ledgerSheet.getDataRange().getValues();
+  const detailRows = [];
+  const TIME_ZONE = getScriptTimeZone();
+
+  let migratedCount = 0;
+
+  for (let i = 1; i < ledgerData.length; i++) {
+    const row = ledgerData[i];
+    const transactionType = row[4];
+
+    if (transactionType === 'Initial Balance') {
+      const employeeId = row[1];
+      const employeeName = row[2];
+      const cocEarned = row[6];
+      const monthYearEarned = row[9];
+      const expirationDate = row[10];
+      const referenceId = row[5];
+
+      // Skip if no amount or already migrated
+      if (!cocEarned || cocEarned <= 0) continue;
+
+      // Check if already exists in detail sheet
+      const detailData = detailSheet.getDataRange().getValues();
+      let alreadyExists = false;
+      for (let j = 1; j < detailData.length; j++) {
+        if (detailData[j][DETAIL_COLS.RECORD_ID] === referenceId) {
+          alreadyExists = true;
+          break;
+        }
+      }
+
+      if (alreadyExists) continue;
+
+      // Convert MM-yyyy to date
+      const earnedDate = monthYearEarned ? parseMonthYear(monthYearEarned) : new Date(row[3]);
+      const certDate = earnedDate ? new Date(earnedDate) : new Date(row[3]);
+      const normalizedMonthYear = Utilities.formatDate(certDate, TIME_ZONE, 'MM-yyyy');
+      const calculatedExpiration = expirationDate ? new Date(expirationDate) : calculateCertificateExpiration(certDate);
+
+      detailRows.push([
+        referenceId,
+        employeeId,
+        employeeName,
+        normalizedMonthYear,
+        certDate,
+        cocEarned,
+        0,
+        cocEarned,
+        'Active',
+        calculatedExpiration,
+        'CERT-' + Utilities.formatDate(certDate, TIME_ZONE, 'yyyyMMddHHmmssSSS'),
+        new Date(),
+        Session.getActiveUser().getEmail(),
+        'Migrated from ledger: ' + row[12]
+      ]);
+
+      migratedCount++;
+    }
+  }
+
+  // Batch write
+  if (detailRows.length > 0) {
+    detailSheet.getRange(detailSheet.getLastRow() + 1, 1, detailRows.length, detailRows[0].length)
+      .setValues(detailRows);
+  }
+
+  return {
+    success: true,
+    migratedCount: migratedCount,
+    message: 'Migrated ' + migratedCount + ' initial balance entries to COC_Balance_Detail'
+  };
+}
+
+
+/**
+ * Menu function to run the COC records MONTH_YEAR migration
+ */
+function runCOCRecordsMigration() {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.alert(
+    'Run Data Migration',
+    'This will populate the MONTH_YEAR column for all existing COC records that don\'t have it set.\n\nThis is safe to run multiple times.\n\nProceed?',
+    ui.ButtonSet.YES_NO
+  );
+
+  if (response === ui.Button.YES) {
+    try {
+      const result = migrateCOCRecordsMonthYear();
+      if (result.success) {
+        const message = `Successfully updated ${result.updatedCount} records.\n` +
+          `Format fixes: ${result.fixedCount || 0}\n\n` +
+          `Please refresh the page and try viewing records again.\n\n` +
+          `Check the Execution log (View > Execution log) for details.`;
+        ui.alert('Migration Complete', message, ui.ButtonSet.OK);
+      } else {
+        ui.alert('Migration Failed', result.message || 'An unknown error occurred.', ui.ButtonSet.OK);
+      }
+    } catch (e) {
+      ui.alert('Migration Error', e.message || String(e), ui.ButtonSet.OK);
+    }
+  }
+}
+
